@@ -22,7 +22,7 @@ can't control a player (the core's ToMa action carries an `Api.Command`, and Api
 three).
 
 Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
-container (`deploy/`); 103 laws, all proven. About 1 MB of memory, 2 threads.
+container (`deploy/`); 106 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 
@@ -51,8 +51,11 @@ lib/
     mqtt.bend    MQTT 3.1.1 client packets
     ws.bend      WebSocket client (RFC 6455): the upgrade request and answer, masked client
                  frames, a streaming frame decoder (one byte at a time, bounded)
-    json.bend    a streaming JSON scanner that keeps only wanted paths (bounded captures), and
-                 JSON output with escaping
+    json.bend    a streaming JSON scanner that keeps only wanted paths, and JSON output with
+                 escaping. A byte is a move (what it does, from the mode and the open
+                 containers) and a land (the only place the containers and the kept values
+                 change, each within its room): proven for every input, at most 64 open
+                 containers, 256 kept values, 4096 bytes per string, 64 characters per number.
   net/      effects (C, in net/effs/): Net.connect (by name, 10 s), Sock.dup and
             Sock.shutdown, Sd.notify, Clock.unix (the wall clock), Run.forever
   ma/       Music Assistant's API (pure)

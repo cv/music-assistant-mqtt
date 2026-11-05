@@ -2,6 +2,13 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## Unreleased
+
+- The JSON scanner's limits are proven for every input: at most 64 open containers, 256 kept
+  values, 4096 bytes per string being read, 64 characters per number. A byte is now a move (what
+  it does) and a land (the only place containers and kept values change, each within its room);
+  the counters are rooms that count down. Behaviour is unchanged (every earlier law still holds).
+
 ## 0.3.0 (2026-11-05)
 
 - A tick publishes every lookup that waited too long, each once, and keeps the rest: proven

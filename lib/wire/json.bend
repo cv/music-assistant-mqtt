@@ -47,12 +47,16 @@ def max_caps() -> Nat:
   256n
 
 # A kept string (or a key) keeps this many bytes; the rest are dropped.
-def max_text() -> U32:
-  4096
+def max_text() -> Nat:
+  4096n
 
 # A number has at most this many characters; longer is broken.
-def max_number() -> U32:
-  64
+def max_number() -> Nat:
+  64n
+
+# The room a number has after its first character (max_number - 1).
+def number.first_room() -> Nat:
+  63n
 
 # The scanner
 # ===========
@@ -64,9 +68,10 @@ type Frame is Data:
   InArr{i: U32}
 
 # A string being read: whether it is a key, whether its bytes are kept, the bytes so far (newest
-# first) and their count, and a high surrogate waiting for its low half (0: none).
+# first) and the room left for more (acc + room = max_text), and a high surrogate waiting for its
+# low half (0: none).
 type Txt is Data:
-  Txt{key: Bool, keep: Bool, acc: B.Bytes, n: U32, high: U32}
+  Txt{key: Bool, keep: Bool, acc: B.Bytes, room: Nat, high: U32}
 
 # What the scanner expects next.
 type Mode is Data:
@@ -86,8 +91,8 @@ type Mode is Data:
   InString{t: Txt}
   InEscape{t: Txt}
   InHex{t: Txt, digits: Nat, code: U32}
-  # a number's characters so far (newest first) and their count
-  InNumber{acc: B.Bytes, n: U32}
+  # a number's characters so far (newest first) and the room for more (acc + room = max_number)
+  InNumber{acc: B.Bytes, room: Nat}
   # true, false or null: the bytes still expected, and the value
   InWord{rest: B.Bytes, val: Val}
   # the document is whole
@@ -121,6 +126,11 @@ def start() -> Scan:
 
 def broken(why: String) -> Scan:
   Scan{Broken{why}, stack.empty(), kept.empty()}
+
+def scan.mode(s: Scan) -> Mode:
+  match s:
+    case Scan{m, _, _}:
+      m
 
 def scan.stack(s: Scan) -> Stack:
   match s:
@@ -536,9 +546,9 @@ def begin(+ws: Wants, ch: Ch, +b: U32, m: Mode, +stack: List<&2, Frame>, deep: B
     case LBracket{}:
       open(InArr{0}, ArrStart{}, deep)
     case Quote{}:
-      same(InString{Txt{False{}, wanted(ws, stack), Nil{}, 0, 0}})
+      same(InString{Txt{False{}, wanted(ws, stack), Nil{}, max_text(), 0}})
     case NumCh{}:
-      same(InNumber{[b], 1})
+      same(InNumber{[b], number.first_room()})
     case TCh{}:
       same(InWord{[114, 117, 101], Yes{}})
     case FCh{}:
@@ -549,7 +559,7 @@ def begin(+ws: Wants, ch: Ch, +b: U32, m: Mode, +stack: List<&2, Frame>, deep: B
       Breaks{"unexpected byte " ++ U32.show(b)}
 
 def key.text() -> Mode:
-  InString{Txt{True{}, False{}, Nil{}, 0, 0}}
+  InString{Txt{True{}, False{}, Nil{}, max_text(), 0}}
 
 # A byte where structure is expected (m: the mode, which isn't inside a token).
 def structural(+ws: Wants, m: Mode, ch: Ch, +b: U32, +stack: List<&2, Frame>, deep: Bool)
@@ -611,21 +621,23 @@ def structural(+ws: Wants, m: Mode, ch: Ch, +b: U32, +stack: List<&2, Frame>, de
 # Strings
 # -------
 
-def txt.add.if_room(room: Bool, t: Txt, +b: U32) -> Txt:
-  match room:
-    case True{}:
-      match t:
-        case Txt{key, keep, acc, n, high}:
-          Txt{key, keep, b <> acc, (n + 1 : U32), high}
+def txt.add.if(take: Bool, room: Nat, +key: Bool, +keep: Bool, acc: B.Bytes, high: U32,
+    +b: U32) -> Txt:
+  match take:
     case False{}:
-      t
+      Txt{key, keep, acc, room, high}
+    case True{}:
+      match room:
+        case 0n:
+          Txt{key, keep, acc, 0n, high}
+        case 1n+r:
+          Txt{key, keep, b <> acc, r, high}
 
 # A string's byte, kept when the string is a key or kept, and there is room.
 def txt.add(t: Txt, +b: U32) -> Txt:
   match t:
-    case Txt{+key, +keep, acc, +n, high}:
-      txt.add.if_room(Bool.and(Bool.or(key, keep), (n < max_text() : U32)),
-        Txt{key, keep, acc, n, high}, b)
+    case Txt{+key, +keep, acc, room, high}:
+      txt.add.if(Bool.or(key, keep), room, key, keep, acc, high, b)
 
 def txt.add_all(bs: B.Bytes, t: Txt) -> Txt:
   match bs:
@@ -636,8 +648,8 @@ def txt.add_all(bs: B.Bytes, t: Txt) -> Txt:
 
 def txt.with_high(t: Txt, high: U32) -> Txt:
   match t:
-    case Txt{key, keep, acc, n, _}:
-      Txt{key, keep, acc, n, high}
+    case Txt{key, keep, acc, room, _}:
+      Txt{key, keep, acc, room, high}
 
 def txt.high(+t: Txt) -> U32:
   match t:
@@ -835,23 +847,23 @@ def resume(+ws: Wants, first: Move, +b: U32, +stack: List<&2, Frame>, deep: Bool
     case Goes{m, _, cap}:
       resume.on(structural(ws, m, classify(b), b, stack, deep), cap)
 
-# more: whether b continues the number; long: whether it would pass max_number.
-def number.on(more: Bool, long: Bool, +ws: Wants, acc: B.Bytes, +n: U32, +b: U32,
+# more: whether b continues the number; room: how many more characters it may have.
+def number.on(more: Bool, room: Nat, +ws: Wants, acc: B.Bytes, +b: U32,
     +stack: List<&2, Frame>, deep: Bool) -> Move:
   match more:
     case True{}:
-      match long:
-        case True{}:
+      match room:
+        case 0n:
           Breaks{"a number over 64 characters"}
-        case False{}:
-          same(InNumber{b <> acc, (n + 1 : U32)})
+        case 1n+r:
+          same(InNumber{b <> acc, r})
     case False{}:
       resume(ws, value(wanted(ws, stack), stack, Num{List.reverse(&2, U32, acc)}), b, stack, deep)
 
 # A byte after a number's first: more of it, or what follows it (read as such).
-def number.byte(+ws: Wants, acc: B.Bytes, +n: U32, +b: U32, +stack: List<&2, Frame>, deep: Bool)
-    -> Move:
-  number.on(is_number_byte(b), (n >= max_number() : U32), ws, acc, n, b, stack, deep)
+def number.byte(+ws: Wants, acc: B.Bytes, room: Nat, +b: U32, +stack: List<&2, Frame>,
+    deep: Bool) -> Move:
+  number.on(is_number_byte(b), room, ws, acc, b, stack, deep)
 
 def word.on(ok: Bool, rest: B.Bytes, val: Val, +ws: Wants, +stack: List<&2, Frame>) -> Move:
   match ok:
@@ -881,8 +893,8 @@ def move(+ws: Wants, mode: Mode, +stack: List<&2, Frame>, deep: Bool, +b: U32) -
       escape.byte(t, b)
     case InHex{t, digits, code}:
       hex.byte(t, digits, code, b)
-    case InNumber{acc, n}:
-      number.byte(ws, acc, n, b, stack, deep)
+    case InNumber{acc, room}:
+      number.byte(ws, acc, room, b, stack, deep)
     case InWord{rest, val}:
       word.byte(ws, rest, val, b, stack)
     case Broken{why}:

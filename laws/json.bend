@@ -131,3 +131,28 @@ law json_kept_bounded:
   for +ws: J.Wants
   for +bs: B.Bytes
   {kept.size(J.scan.kept(J.run(bs, ws, J.start()))) == J.max_caps() : Nat}
+
+# For every wanted paths and bytes: a string being read holds its bytes plus its room equal to
+# max_text (4096), a number its characters plus its room equal to max_number (64).
+def txt.ok(t: J.Txt) -> Bool:
+  match t:
+    case J.Txt{_, _, acc, room, _}:
+      Nat.is_eq(Nat.add(List.length(&2, U32, acc), room), J.max_text())
+
+def mode.ok(m: J.Mode) -> Bool:
+  match m:
+    case J.InString{t}:
+      txt.ok(t)
+    case J.InEscape{t}:
+      txt.ok(t)
+    case J.InHex{t, _, _}:
+      txt.ok(t)
+    case J.InNumber{acc, room}:
+      Nat.is_eq(Nat.add(List.length(&2, U32, acc), room), J.max_number())
+    case _:
+      True{}
+
+law json_buffers_bounded:
+  for +ws: J.Wants
+  for +bs: B.Bytes
+  {mode.ok(J.scan.mode(J.run(bs, ws, J.start()))) == True{} : Bool}

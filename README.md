@@ -53,7 +53,7 @@ cross-compiles it, statically, for the target).
 
 ## How it is made
 
-It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 101. The wire
+It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 106. The wire
 formats are pinned to bytes real peers sent or accepted (RFC 6455's examples, Music Assistant's
 messages). Others hold for every input:
 - only values at the paths it declares ever leave the JSON scanner, so a device's details, MAC or
