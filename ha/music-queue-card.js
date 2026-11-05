@@ -19,6 +19,17 @@ const length = (s) => {
   return h ? h + ":" + String(m).padStart(2, "0") + ":" + ss : String(m).padStart(2, "0") + ":" + ss;
 };
 
+// A small version of an artwork address (Apple's and Spotify's image servers serve any size;
+// 96 px and 64 px instead of 600-1000 px), or nothing for an address a browser couldn't load
+// everywhere (only https: an http image is blocked on an https dashboard).
+const thumb = (u) => {
+  u = String(u || "");
+  if (!u.startsWith("https://")) return "";
+  if (u.includes("mzstatic.com/")) return u.replace(/\/\d+x\d+[a-z]*\.(jpg|jpeg|png|webp)$/i, "/96x96bb.jpg");
+  if (u.includes("i.scdn.co/image/ab67616d0000b273")) return u.replace("ab67616d0000b273", "ab67616d00004851");
+  return u;
+};
+
 const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 class MusicQueueCard extends HTMLElement {
@@ -38,7 +49,7 @@ class MusicQueueCard extends HTMLElement {
         ha-card { overflow: hidden; }
         .list { padding: 4px 0; }
         .row {
-          display: flex; align-items: baseline; gap: 12px; padding: 6px 16px;
+          display: flex; align-items: center; gap: 12px; padding: 6px 16px;
           cursor: pointer; border-radius: 8px; margin: 0 4px;
           color: var(--primary-text-color); line-height: 1.3;
         }
@@ -49,6 +60,12 @@ class MusicQueueCard extends HTMLElement {
           font-variant-numeric: tabular-nums; flex: none; min-width: 3.2em; text-align: right;
           color: var(--secondary-text-color); font-size: 0.9em;
         }
+        .art {
+          flex: none; width: 40px; height: 40px; border-radius: 4px; object-fit: cover;
+          background: var(--secondary-background-color); display: flex; align-items: center;
+          justify-content: center; color: var(--secondary-text-color); font-size: 18px;
+        }
+        .prev .art { opacity: 0.75; }
         .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .note { flex: none; font-size: 0.8em; color: var(--secondary-text-color); opacity: 0.8; }
         .starting { opacity: 0.6; }
@@ -100,21 +117,28 @@ class MusicQueueCard extends HTMLElement {
     const next = (a.next || []).slice(0, this._config.next);
     this._prevEl.innerHTML = prev.map((p, i) => {
       const skipped = Number(p.seconds) < 30 && Number(p.seconds) < Number(p.duration) - 10;
-      return this._row("p", i, p.duration, (p.artist ? p.artist + " - " : "") + p.title, skipped ? "skipped" : "");
+      return this._row("p", i, p.image, p.duration, (p.artist ? p.artist + " - " : "") + p.title,
+        skipped ? "skipped" : "");
     }).join("");
     this._nextEl.innerHTML = next.length
-      ? next.map((n, i) => this._row("n", i, n.duration, n.name, "")).join("")
+      ? next.map((n, i) => this._row("n", i, n.image, n.duration, n.name, "")).join("")
       : '<div class="empty">Nothing queued next</div>';
     this._prev = prev;
     this._next = next;
   }
 
-  _row(kind, i, duration, name, note) {
+  // [art] Artist - Song (note) 01:23
+  _row(kind, i, image, duration, name, note) {
     const starting = this._pending === kind + i;
-    return '<div class="row' + (starting ? " starting" : "") + '" role="button" tabindex="0" data-kind="' + kind
-      + '" data-i="' + i + '"><span class="time">' + length(duration) + '</span><span class="name">'
-      + esc(name) + "</span>" + (starting ? '<span class="note">starting…</span>' : note ? '<span class="note">'
-      + esc(note) + "</span>" : "") + "</div>";
+    const src = thumb(image);
+    const art = src
+      ? '<img class="art" alt="" loading="lazy" src="' + esc(src) + '" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'), {className: \'art\', textContent: \'♪\'}))">'
+      : '<div class="art">♪</div>';
+    const n = starting ? "starting…" : note;
+    return '<div class="row' + (starting ? " starting" : "") + '" role="button" tabindex="0" data-kind="'
+      + kind + '" data-i="' + i + '">' + art + '<span class="name">' + esc(name) + "</span>"
+      + (n ? '<span class="note">' + esc(n) + "</span>" : "") + '<span class="time">'
+      + length(duration) + "</span></div>";
   }
 
   _tap(e) {

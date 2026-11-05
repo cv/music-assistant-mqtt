@@ -145,22 +145,24 @@ law top_session:
        ++ "\":\"RINCON_000000000002400\",\"index\":0} | ",
      "pub music/living_room/queue {\"previous\":[],\"next\":[{\"id\":\"00000"
        ++ "00000000000000000000000016e\",\"name\":\"Celso Fonseca - Bom Sinal\",\""
-       ++ "duration\":310,\"uri\":\"library://track/1125\"},{\"id\":\"00000000000"
-       ++ "00000000000000000018f\",\"name\":\"Vulfpeck - Welcome to Vulf Records\""
-       ++ ",\"duration\":163,\"uri\":\"library://track/10648\"}],\"queue\":\"RINC"
-       ++ "ON_000000000001400\",\"index\":242} | ",
+       ++ "duration\":310,\"uri\":\"library://track/1125\",\"image\":\"https://ex"
+       ++ "ample.com/cover.jpg\"},{\"id\":\"0000000000000000000000000000018f\",\""
+       ++ "name\":\"Vulfpeck - Welcome to Vulf Records\",\"duration\":163,\"uri\""
+       ++ ":\"library://track/10648\",\"image\":\"https://example.com/cover.jpg\""
+       ++ "}],\"queue\":\"RINCON_000000000001400\",\"index\":242} | ",
      "ma {\"message_id\":\"2147483650\",\"command\":\"player_queues/items\","
        ++ "\"args\":{\"queue_id\":\"RINCON_000000000001400\",\"limit\":5,\"offset"
        ++ "\":244}} | ",
      "ma {\"message_id\":\"3\",\"command\":\"music/item_by_uri\",\"args\":{\""
        ++ "uri\":\"library://track/1\"}} | pub music/living_room/queue {\"previou"
        ++ "s\":[{\"artist\":\"Band\",\"title\":\"Song\",\"duration\":200,\"second"
-       ++ "s\":12,\"uri\":\"library://track/1\"}],\"next\":[{\"id\":\"00000000000"
-       ++ "00000000000000000016e\",\"name\":\"Celso Fonseca - Bom Sinal\",\"durat"
-       ++ "ion\":310,\"uri\":\"library://track/1125\"},{\"id\":\"0000000000000000"
-       ++ "000000000000018f\",\"name\":\"Vulfpeck - Welcome to Vulf Records\",\"d"
-       ++ "uration\":163,\"uri\":\"library://track/10648\"}],\"queue\":\"RINCON_0"
-       ++ "00000000001400\",\"index\":243} | "]
+       ++ "s\":12,\"uri\":\"library://track/1\",\"image\":\"\"}],\"next\":[{\"id\""
+       ++ ":\"0000000000000000000000000000016e\",\"name\":\"Celso Fonseca - Bom S"
+       ++ "inal\",\"duration\":310,\"uri\":\"library://track/1125\",\"image\":\"h"
+       ++ "ttps://example.com/cover.jpg\"},{\"id\":\"0000000000000000000000000000"
+       ++ "018f\",\"name\":\"Vulfpeck - Welcome to Vulf Records\",\"duration\":16"
+       ++ "3,\"uri\":\"library://track/10648\",\"image\":\"https://example.com/co"
+       ++ "ver.jpg\"}],\"queue\":\"RINCON_000000000001400\",\"index\":243} | "]
     : List<&2, String>}
 
 def heard.count(d: D.Deck, +player: B.Bytes) -> Nat:
@@ -169,10 +171,11 @@ def heard.count(d: D.Deck, +player: B.Bytes) -> Nat:
 # For every play and deck: the player's last plays are at most window() (5).
 law deck_previous_bounded:
   for p: Model.Play
+  for img: B.Bytes
   for d: D.Deck
   for n: U32
-  {Nat.is_le(heard.count(D.did.deck(D.played(p, d, n)), K.play.player(p)), D.window()) == True{}
-    : Bool}
+  {Nat.is_le(heard.count(D.did.deck(D.played(p, img, d, n)), K.play.player(p)), D.window())
+    == True{} : Bool}
 
 # For every deck: a queue_updated at the place the queue already has asks nothing.
 law deck_unchanged_asks_nothing:

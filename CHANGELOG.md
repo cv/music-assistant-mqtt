@@ -2,6 +2,12 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## 0.6.0 (2026-11-05)
+
+- Queue windows carry artwork: each previous play's and next item's `image` (an address a browser
+  can load anywhere; empty when Music Assistant has only a local one). The queue card shows it:
+  `[art] Artist - Song 01:23`, with small thumbnails from Apple's and Spotify's image servers.
+
 ## 0.5.0 (2026-11-05)
 
 - Queue windows: `<prefix>/<player>/queue` (retained) holds each player's last 5 plays, from any

@@ -124,10 +124,10 @@ def refused.on(mine: Bool, +d: D.Deck, +id: B.Bytes, +next: U32) -> D.Did:
     case False{}:
       none(d, next)
 
-def played.on(final: Bool, +p: Model.Play, +d: D.Deck, +next: U32) -> D.Did:
+def played.on(final: Bool, +p: Model.Play, +image: B.Bytes, +d: D.Deck, +next: U32) -> D.Did:
   match final:
     case True{}:
-      D.played(p, d, next)
+      D.played(p, image, d, next)
     case False{}:
       none(d, next)
 
@@ -151,7 +151,8 @@ def happened.on(placed: Bool, items: Bool, play: Bool, live: Bool, +d: D.Deck, +
         case False{}:
           match play:
             case True{}:
-              played.on(K.play.final(Model.play(caps)), Model.play(caps), d, next)
+              played.on(K.play.final(Model.play(caps)), Model.play(caps), Model.play.image(caps), d,
+                next)
             case False{}:
               none(d, next)
 

@@ -73,7 +73,7 @@ def media_fields() -> List<&2, String>:
 # A play report (media_item_played).
 def play_fields() -> List<&2, String>:
   ["uri", "name", "artist", "album", "duration", "seconds_played", "fully_played", "is_playing",
-   "player_id"]
+   "player_id", "image_url"]
 
 # Where a queue stands (in player_queues/all's list and in queue_updated events).
 def queue_fields() -> List<&2, String>:
@@ -97,4 +97,5 @@ def wants() -> J.Wants:
     paths([k("data"), k("current_media")], media_fields()),
     paths([k("result"), J.PAny{}], List.append(&2, String, queue_fields(), item_fields())),
     paths([k("result"), J.PAny{}, k("media_item")], ["uri"]),
+    paths([k("result"), J.PAny{}, k("image")], ["path", "remotely_accessible"]),
     paths([k("data")], queue_fields())])

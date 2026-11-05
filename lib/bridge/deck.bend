@@ -12,9 +12,9 @@ import ../ma/model.bend as Model
 def window() -> Nat:
   5n
 
-# A play as the window shows it (uri: to play it again).
+# A play as the window shows it (uri: to play it again; image: its artwork's address, or empty).
 type Heard is Data:
-  Heard{artist: B.Bytes, title: B.Bytes, duration: U32, seconds: U32, uri: B.Bytes}
+  Heard{artist: B.Bytes, title: B.Bytes, duration: U32, seconds: U32, uri: B.Bytes, image: B.Bytes}
 
 # A player's last plays, newest first (at most window()).
 type Recent is Data:
@@ -388,7 +388,7 @@ def recent.drop(rs: List<&2, Recent>, +p: B.Bytes) -> List<&2, Recent>:
       recent.drop.if(B.beq(recent.player(r), p), r, recent.drop(t, p))
 
 # A finished play (any player): first among its player's last plays, which keep window() at most.
-def played(p: Model.Play, d: Deck, +next: U32) -> Did:
+def played(p: Model.Play, +image: B.Bytes, d: Deck, +next: U32) -> Did:
   match p:
     case Model.Play{+item, +seconds, _, _, +player}:
       match item:
@@ -396,7 +396,7 @@ def played(p: Model.Play, d: Deck, +next: U32) -> Did:
           match d:
             case Deck{+ss, +as, +r, +l}:
               Did{Deck{ss, as, Recent{player, List.take(&2, Heard, Heard{artist, title, duration,
-                  seconds, uri} <> recent.heard(recent.find(r, player)), window())}
+                  seconds, uri, image} <> recent.heard(recent.find(r, player)), window())}
                   <> recent.drop(r, player), l},
                 next, Nil{}, [player]}
 
@@ -405,10 +405,10 @@ def played(p: Model.Play, d: Deck, +next: U32) -> Did:
 
 def heard.json(h: Heard) -> B.Bytes:
   match h:
-    case Heard{+a, +t, +d, +s, +u}:
+    case Heard{+a, +t, +d, +s, +u, +im}:
       J.object([J.Field{"artist", J.string(a)}, J.Field{"title", J.string(t)},
         J.Field{"duration", J.number(d)}, J.Field{"seconds", J.number(s)},
-        J.Field{"uri", J.string(u)}])
+        J.Field{"uri", J.string(u)}, J.Field{"image", J.string(im)}])
 
 def heard.all(hs: List<&2, Heard>) -> List<&2, B.Bytes>:
   match hs:
@@ -419,9 +419,10 @@ def heard.all(hs: List<&2, Heard>) -> List<&2, B.Bytes>:
 
 def item.json(i: Model.Item) -> B.Bytes:
   match i:
-    case Model.Item{+id, +name, +d, +uri}:
+    case Model.Item{+id, +name, +d, +uri, +im}:
       J.object([J.Field{"id", J.string(id)}, J.Field{"name", J.string(name)},
-        J.Field{"duration", J.number(d)}, J.Field{"uri", J.string(uri)}])
+        J.Field{"duration", J.number(d)}, J.Field{"uri", J.string(uri)},
+        J.Field{"image", J.string(im)}])
 
 def items.all(xs: List<&2, Model.Item>) -> List<&2, B.Bytes>:
   match xs:

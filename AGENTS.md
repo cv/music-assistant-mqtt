@@ -123,8 +123,10 @@ runs sessions in a loop:
   "artist", "album", "uri", "duration"}`; device details (MAC, IP) are never kept. The elapsed
   time is left out, so it changes only when something real does.
 - `<prefix>/<player>/queue` (retained JSON): `{"previous": [last 5 plays, oldest first: "artist",
-  "title", "duration", "seconds", "uri"], "next": [the queue's next 5 items: "id" (to play it:
-  player_queues/play_index takes it), "name" ("Artist - Title"), "duration", "uri"], "queue", "index"}`.
+  "title", "duration", "seconds", "uri", "image"], "next": [the queue's next 5 items: "id" (to play
+  it: player_queues/play_index takes it), "name" ("Artist - Title"), "duration", "uri", "image"],
+  "queue", "index"}`. "image": the artwork's address (a play report's image_url; a queue item's
+  image path when Music Assistant says it is remotely accessible), else empty.
   Plays come from every source; the next items from `player_queues/items` after the current index,
   asked again only when the queue's place (index or length) changes or its items do. The last plays
   survive a reconnect (in memory), not a restart.

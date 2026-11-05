@@ -294,9 +294,9 @@ type Queue is Data:
   Queue{id: B.Bytes, index: U32, count: U32}
 
 # A queue item: its id (to play it), "Artist - Title" as Music Assistant names it, its length (s),
-# its uri.
+# its uri, its artwork's address (empty unless reachable from anywhere).
 type Item is Data:
-  Item{id: B.Bytes, name: B.Bytes, duration: U32, uri: B.Bytes}
+  Item{id: B.Bytes, name: B.Bytes, duration: U32, uri: B.Bytes, image: B.Bytes}
 
 def queue(+caps: Caps, +prefix: List<&2, J.Seg>) -> Queue:
   Queue{text.of(field(caps, prefix, "queue_id")), number.of(field(caps, prefix, "current_index")),
@@ -319,10 +319,19 @@ def queues.loop(fuel: Nat, +caps: Caps, +i: U32, found: Bool) -> List<&2, Queue>
 def queues(+caps: Caps) -> List<&2, Queue>:
   queues.loop(256n, caps, 0, is_some(field(caps, list.at(0), "queue_id")))
 
+def image.if(remote: Bool, path: B.Bytes) -> B.Bytes:
+  match remote:
+    case True{}:
+      path
+    case False{}:
+      Nil{}
+
 def item(+caps: Caps, +prefix: List<&2, J.Seg>) -> Item:
+  +img = List.append(&2, J.Seg, prefix, [key("image")])
   Item{text.of(field(caps, prefix, "queue_item_id")), text.of(field(caps, prefix, "name")),
     number.of(field(caps, prefix, "duration")),
-    text.of(field(caps, List.append(&2, J.Seg, prefix, [key("media_item")]), "uri"))}
+    text.of(field(caps, List.append(&2, J.Seg, prefix, [key("media_item")]), "uri")),
+    image.if(flag.of(field(caps, img, "remotely_accessible")), text.of(field(caps, img, "path")))}
 
 def items.loop(fuel: Nat, +caps: Caps, +i: U32, found: Bool) -> List<&2, Item>:
   match fuel:
@@ -340,6 +349,10 @@ def items.loop(fuel: Nat, +caps: Caps, +i: U32, found: Bool) -> List<&2, Item>:
 # The items of a player_queues/items reply, in order (at most 64).
 def items(+caps: Caps) -> List<&2, Item>:
   items.loop(64n, caps, 0, is_some(field(caps, list.at(0), "queue_item_id")))
+
+# A play report's artwork (its image_url; empty when it has none).
+def play.image(+caps: Caps) -> B.Bytes:
+  text.of(field(caps, at(["data"]), "image_url"))
 
 # Catalog ids
 # -----------

@@ -11,7 +11,7 @@ and publishes:
 | `music/status` | `online` / `offline` (also the last will) | yes |
 | `music/<player>/state` | what the player is doing: name, state, availability, source, group, volume, title, artist, album, uri, duration | yes |
 | `music/played` | a finished play, skips included: when, where, what, how long it was heard, whether fully, its catalog ids (Apple Music, Spotify) and ISRC | no |
-| `music/<player>/queue` | the player's window: its last 5 plays (wherever they came from: artist, title, length, seconds heard, uri) and the next 5 items of its queue (id, "Artist - Title", length, uri), with the queue's id and position | yes |
+| `music/<player>/queue` | the player's window: its last 5 plays (wherever they came from: artist, title, length, seconds heard, uri, artwork) and the next 5 items of its queue (id, "Artist - Title", length, uri, artwork), with the queue's id and position | yes |
 | `music/$bridge/…` | its own health: version, uptime, sessions, why the last one ended, plays, players, memory | yes |
 
 Every play is also appended to a JSON-lines file, the durable history:
@@ -55,7 +55,7 @@ cross-compiles it, statically, for the target).
 ## A queue card for Home Assistant
 
 [`ha/music-queue-card.js`](ha/music-queue-card.js) shows a player's last plays, its media control
-and its next items, from `music/<player>/queue`. A tap on a previous play plays it again; a tap on a
+and its next items (`[art] Artist - Song 01:23`), from `music/<player>/queue`. A tap on a previous play plays it again; a tap on a
 next item jumps straight to it (nothing in between is played).
 
 1. An MQTT sensor per player, with the window as its attributes:

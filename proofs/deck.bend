@@ -29,7 +29,7 @@ def take_le(-A: Data, +xs: List<&2, A>, +n: Nat)
         case 1n+p:
           take_le(A, t, p)
 
-def Ld.deck_previous_bounded(p, d, n):
+def Ld.deck_previous_bounded(p, img, d, n):
   match p:
     case Model.Play{item, +seconds, _, _, +player}:
       match item:
@@ -39,10 +39,10 @@ def Ld.deck_previous_bounded(p, d, n):
               %Equal.sym(Bool, B.beq(player, player), True{}, Pc.beq_refl(player)) :
                 {Nat.is_le(List.length(&2, D.Heard, D.recent.heard(D.recent.find.if(_,
                     D.Recent{player, List.take(&2, D.Heard, D.Heard{artist, title, duration,
-                      seconds, uri} <> D.recent.heard(D.recent.find(r, player)), D.window())},
+                      seconds, uri, img} <> D.recent.heard(D.recent.find(r, player)), D.window())},
                     D.recent.find(D.recent.drop(r, player), player)))), D.window())
                   == True{} : Bool}
-              take_le(D.Heard, D.Heard{artist, title, duration, seconds, uri}
+              take_le(D.Heard, D.Heard{artist, title, duration, seconds, uri, img}
                 <> D.recent.heard(D.recent.find(r, player)), D.window())
 
 def Ld.deck_unchanged_asks_nothing(q, i, c, next, ss, as, r, l, n):
