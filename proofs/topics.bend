@@ -38,10 +38,10 @@ def known_stays(+ns: T.Names, +id: B.Bytes, +name: B.Bytes, +l: B.Bytes,
   {==}
 
 # Whichever level a new player got, it is first in the table, so learning it again is no change.
-def new_stays(b1: Bool, b2: Bool, +ns: T.Names, +id: B.Bytes, +base: B.Bytes, +alt: B.Bytes,
-    +later: B.Bytes)
-    -> {T.learn(T.learn.new(b1, b2, ns, id, base, alt), id, later)
-        == T.learn.new(b1, b2, ns, id, base, alt) : T.Names}:
+def new_stays(b1: Bool, b2: Bool, b3: Bool, +ns: T.Names, +id: B.Bytes, +base: B.Bytes,
+    +alt: B.Bytes, +last: B.Bytes, +later: B.Bytes)
+    -> {T.learn(T.learn.new(b1, b2, b3, ns, id, base, alt, last), id, later)
+        == T.learn.new(b1, b2, b3, ns, id, base, alt, last) : T.Names}:
   match b1:
     case True{}:
       known_stays(T.Named{id, base} <> ns, id, later, base, found_first(id, base, ns))
@@ -50,8 +50,11 @@ def new_stays(b1: Bool, b2: Bool, +ns: T.Names, +id: B.Bytes, +base: B.Bytes, +a
         case True{}:
           known_stays(T.Named{id, alt} <> ns, id, later, alt, found_first(id, alt, ns))
         case False{}:
-          known_stays(T.Named{id, T.or_player(T.slug(id))} <> ns, id, later,
-            T.or_player(T.slug(id)), found_first(id, T.or_player(T.slug(id)), ns))
+          match b3:
+            case True{}:
+              known_stays(T.Named{id, last} <> ns, id, later, last, found_first(id, last, ns))
+            case False{}:
+              known_stays(T.Named{id, Nil{}} <> ns, id, later, Nil{}, found_first(id, Nil{}, ns))
 
 # By cases on the player's level before: m, with h: level.of(names, id) == m.
 def stays_on(+m: Maybe<&2, B.Bytes>, +names: T.Names, +id: B.Bytes, +first: B.Bytes,
@@ -68,8 +71,80 @@ def stays_on(+m: Maybe<&2, B.Bytes>, +names: T.Names, +id: B.Bytes, +first: B.By
           == T.learn.on(_, names, id, first) : T.Names}
       new_stays(Bool.not(T.taken(names, T.candidate(first, id))),
         Bool.not(T.taken(names, B.cat(T.candidate(first, id), 95 <> T.slug(T.last4(id))))),
+        Bool.not(T.taken(names, T.or_player(T.slug(id)))),
         names, id, T.candidate(first, id),
-        B.cat(T.candidate(first, id), 95 <> T.slug(T.last4(id))), later)
+        B.cat(T.candidate(first, id), 95 <> T.slug(T.last4(id))), T.or_player(T.slug(id)), later)
 
 def Lt.names_never_rename(names, id, first, later):
   stays_on(T.level.of(names, id), names, id, first, later, {==})
+
+def Lt.names_all_taken():
+  {==}
+
+# A level that isn't taken (free: Bool.not(taken(names, l)) == True), put first, keeps a unique
+# table unique: the empty level by its definition, any other because it isn't taken.
+def first_unique(+l: B.Bytes, +names: T.Names, +id: B.Bytes,
+    +free: {Bool.not(T.taken(names, l)) == True{} : Bool}, +hu: {T.unique(names) == True{} : Bool})
+    -> {T.unique(T.Named{id, l} <> names) == True{} : Bool}:
+  match l:
+    case Nil{}:
+      %Equal.sym(Bool, T.unique(names), True{}, hu) :
+        {Bool.and(True{}, _) == True{} : Bool}
+      {==}
+    case x <> xs:
+      %Equal.sym(Bool, Bool.not(T.taken(names, x <> xs)), True{}, free) :
+        {Bool.and(_, T.unique(names)) == True{} : Bool}
+      %Equal.sym(Bool, T.unique(names), True{}, hu) :
+        {Bool.and(True{}, _) == True{} : Bool}
+      {==}
+
+# The empty level keeps any unique table unique.
+def empty_unique(+names: T.Names, +id: B.Bytes, +hu: {T.unique(names) == True{} : Bool})
+    -> {T.unique(T.Named{id, Nil{}} <> names) == True{} : Bool}:
+  %Equal.sym(Bool, T.unique(names), True{}, hu) :
+    {Bool.and(True{}, _) == True{} : Bool}
+  {==}
+
+# Each branch of learn.new puts first a level its check found free, or the empty one.
+def new_unique(b1: Bool, b2: Bool, b3: Bool, +names: T.Names, +id: B.Bytes, +base: B.Bytes,
+    +alt: B.Bytes, +last: B.Bytes,
+    +h1: {Bool.not(T.taken(names, base)) == b1 : Bool},
+    +h2: {Bool.not(T.taken(names, alt)) == b2 : Bool},
+    +h3: {Bool.not(T.taken(names, last)) == b3 : Bool},
+    +hu: {T.unique(names) == True{} : Bool})
+    -> {T.unique(T.learn.new(b1, b2, b3, names, id, base, alt, last)) == True{} : Bool}:
+  match b1:
+    case True{}:
+      first_unique(base, names, id, h1, hu)
+    case False{}:
+      match b2:
+        case True{}:
+          first_unique(alt, names, id, h2, hu)
+        case False{}:
+          match b3:
+            case True{}:
+              first_unique(last, names, id, h3, hu)
+            case False{}:
+              empty_unique(names, id, hu)
+
+# By cases on the player's level before (m, with h: level.of(names, id) == m).
+def unique_on(+m: Maybe<&2, B.Bytes>, +names: T.Names, +id: B.Bytes, +name: B.Bytes,
+    +h: {T.level.of(names, id) == m : Maybe<&2, B.Bytes>}, +hu: {T.unique(names) == True{} : Bool})
+    -> {T.unique(T.learn(names, id, name)) == True{} : Bool}:
+  match m:
+    case Some{l}:
+      %Equal.sym(T.Names, T.learn(names, id, name), names, known_stays(names, id, name, l, h)) :
+        {T.unique(_) == True{} : Bool}
+      hu
+    case None{}:
+      %Equal.sym(Maybe<&2, B.Bytes>, T.level.of(names, id), None{}, h) :
+        {T.unique(T.learn.on(_, names, id, name)) == True{} : Bool}
+      new_unique(Bool.not(T.taken(names, T.candidate(name, id))),
+        Bool.not(T.taken(names, B.cat(T.candidate(name, id), 95 <> T.slug(T.last4(id))))),
+        Bool.not(T.taken(names, T.or_player(T.slug(id)))),
+        names, id, T.candidate(name, id),
+        B.cat(T.candidate(name, id), 95 <> T.slug(T.last4(id))), T.or_player(T.slug(id)),
+        {==}, {==}, {==}, hu)
+
+def Lt.names_unique(names, id, name, h):
+  unique_on(T.level.of(names, id), names, id, name, {==}, h)

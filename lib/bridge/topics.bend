@@ -127,8 +127,10 @@ def candidate.on(+s: B.Bytes, +id: B.Bytes) -> B.Bytes:
 def candidate(+name: B.Bytes, +id: B.Bytes) -> B.Bytes:
   candidate.on(slug(name), id)
 
-def learn.new(base_free: Bool, alt_free: Bool, +names: Names, +id: B.Bytes, +base: B.Bytes,
-    +alt: B.Bytes) -> Names:
+# The first candidate no one has; when all three are taken (two ids alike once slugged), an
+# empty level: the player is known, so it is never renamed, but nothing is published for it.
+def learn.new(base_free: Bool, alt_free: Bool, last_free: Bool, +names: Names, +id: B.Bytes,
+    +base: B.Bytes, +alt: B.Bytes, +last: B.Bytes) -> Names:
   match base_free:
     case True{}:
       Named{id, base} <> names
@@ -137,7 +139,11 @@ def learn.new(base_free: Bool, alt_free: Bool, +names: Names, +id: B.Bytes, +bas
         case True{}:
           Named{id, alt} <> names
         case False{}:
-          Named{id, or_player(slug(id))} <> names
+          match last_free:
+            case True{}:
+              Named{id, last} <> names
+            case False{}:
+              Named{id, Nil{}} <> names
 
 def learn.on(m: Maybe<&2, B.Bytes>, +names: Names, +id: B.Bytes, +name: B.Bytes) -> Names:
   match m:
@@ -146,13 +152,30 @@ def learn.on(m: Maybe<&2, B.Bytes>, +names: Names, +id: B.Bytes, +name: B.Bytes)
     case None{}:
       +base = candidate(name, id)
       +alt = B.cat(base, 95 <> slug(last4(id)))
-      learn.new(Bool.not(taken(names, base)), Bool.not(taken(names, alt)), names, id, base, alt)
+      +last = or_player(slug(id))
+      learn.new(Bool.not(taken(names, base)), Bool.not(taken(names, alt)),
+        Bool.not(taken(names, last)), names, id, base, alt, last)
 
 # The table with this player in it. A player already in it keeps its level (names learned later
 # never rename anyone); a new one gets its name's slug, or with the id's last 4 characters when
-# that is taken, or the id's slug.
+# that is taken, or the id's slug when that is too (all checked: no two players share a level).
 def learn(+names: Names, +id: B.Bytes, +name: B.Bytes) -> Names:
   learn.on(level.of(names, id), names, id, name)
+
+# Whether no two players share a level (empty levels, which publish nothing, aside).
+def unique.entry(+l: B.Bytes, +rest: Names) -> Bool:
+  match l:
+    case Nil{}:
+      True{}
+    case _:
+      Bool.not(taken(rest, l))
+
+def unique(+names: Names) -> Bool:
+  match names:
+    case Nil{}:
+      True{}
+    case n <> t:
+      Bool.and(unique.entry(named.level(n), t), unique(t))
 
 # Topics
 # ------

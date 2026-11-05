@@ -382,7 +382,8 @@ def time.ms(t: Time) -> U32:
     case Time{ms, _}:
       ms
 
-# The player's state, published (retained) when it differs from what was last published.
+# The player's state, published (retained) when it differs from what was last published (same:
+# it doesn't, or the player has no level to publish under).
 def publish.if_new(same: Bool, b: Book, +c: Core, +id: B.Bytes, +level: B.Bytes, +state: B.Bytes)
     -> Out:
   match same:
@@ -399,8 +400,9 @@ def publish.learned(b: Book, +c: Core, +id: B.Bytes, +p: Model.Player) -> Out:
     case Book{names, +known, pending, plays}:
       +names2 = T.learn(names, id, player.name(p))
       +state = T.state(p)
-      publish.if_new(known.same(known, id, state), Book{names2, known, pending, plays}, c, id,
-        level.on(T.level.of(names2, id), id), state)
+      +level = level.on(T.level.of(names2, id), id)
+      publish.if_new(Bool.or(List.is_empty(&2, U32, level), known.same(known, id, state)),
+        Book{names2, known, pending, plays}, c, id, level, state)
 
 # A player heard of: learn its name, publish its state if it changed.
 def publish.player(+c: Core, +p: Model.Player) -> Out:

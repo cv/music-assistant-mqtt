@@ -39,6 +39,25 @@ law names_never_rename:
   for +later: B.Bytes
   {T.learn(T.learn(names, id, first), id, later) == T.learn(names, id, first) : T.Names}
 
+# For every table whose levels are unique: learning any player keeps them unique, so no two
+# players ever publish to the same topic.
+law names_unique:
+  for +names: T.Names
+  for +id: B.Bytes
+  for +name: B.Bytes
+  for +h: {T.unique(names) == True{} : Bool}
+  {T.unique(T.learn(names, id, name)) == True{} : Bool}
+
+# Two ids alike once slugged (case, - and _), both named "Lamp": the second gets the id's last 4;
+# a third, whose every candidate is taken, is known with no level (nothing is published for it).
+def lamps() -> T.Names:
+  T.learn(T.learn(T.learn(T.learn(Nil{}, u("ab_cd"), u("ab cd")), u("Ab-Cd"), u("ab cd")),
+    u("x_cd"), u("ab")), u("aB_cD"), u("ab cd"))
+
+law names_all_taken:
+  {lamps() == [T.Named{u("aB_cD"), Nil{}}, T.Named{u("x_cd"), u("ab")},
+    T.Named{u("Ab-Cd"), u("ab_cd_b_cd")}, T.Named{u("ab_cd"), u("ab_cd")}] : T.Names}
+
 law topics_examples:
   {[T.topic.status("music"), T.topic.state("music", u("living_room")), T.topic.played("music"),
     T.topic.health("music", "uptime_s")]
