@@ -24,6 +24,11 @@ jobs:
           bend PROOF.bend | tee proof.txt
           grep -q "ALL PROOFS CHECK" proof.txt
 
+      - name: Simulation
+        run: |
+          bend progs/sim_core.bend | tee sim.txt
+          grep -q "violations: ghost 0, early 0, dup 0, phantom 0, late 0, quiet 0, deaf 0, unasked 0" sim.txt
+
       - name: C
         run: mkdir -p out && bend mam.bend -o out/mam.c
 
