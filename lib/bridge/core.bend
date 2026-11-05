@@ -408,18 +408,19 @@ def publish.learned(b: Book, +c: Core, +id: B.Bytes, +p: Model.Player) -> Out:
 def publish.player(+c: Core, +p: Model.Player) -> Out:
   publish.learned(core.book(c), c, player.id(p), p)
 
-def players.publish(ps: List<&2, Model.Player>, +c: Core, acc: List<&2, Action>) -> Out:
+# Every player published in turn (each one's actions, then the rest's).
+def players.publish(ps: List<&2, Model.Player>, +c: Core) -> Out:
   match ps:
     case Nil{}:
-      Out{c, List.reverse(&2, Action, acc)}
+      Out{c, Nil{}}
     case p <> t:
       +o = publish.player(c, p)
-      players.publish(t, out.core(o), List.append(&2, Action, List.reverse(&2, Action,
-        out.actions(o)), acc))
+      +rest = players.publish(t, out.core(o))
+      Out{out.core(rest), List.append(&2, Action, out.actions(o), out.actions(rest))}
 
 # The player list arrived: live, every player published, online.
 def live(+c: Core, +t: Time, +ps: List<&2, Model.Player>) -> Out:
-  +o = players.publish(ps, with.up(with.phase(c, Live{})), Nil{})
+  +o = players.publish(ps, with.up(with.phase(c, Live{})))
   Out{with.report(out.core(o), (time.ms(t) - (report_every() - first_report()) : U32)),
     Log{"live: " ++ Nat.show(List.length(&2, Model.Player, ps)) ++ " players"}
       <> status(c, "online") <> out.actions(o)}

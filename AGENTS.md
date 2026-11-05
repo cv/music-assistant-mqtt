@@ -22,7 +22,7 @@ can't control a player (the core's ToMa action carries an `Api.Command`, and Api
 three).
 
 Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
-container (`deploy/`); 92 laws, all proven. About 1 MB of memory, 2 threads.
+container (`deploy/`); 101 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 
@@ -151,6 +151,11 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
   only from the player list on.
 - Names: no two players share a topic level; a learned player is never renamed; one with no free
   name gets none and is never published.
+- Plays, each published once: a final report goes pending under the next message id with one
+  lookup (a report still playing does nothing); the lookup's answer, refusal or expiry publishes
+  at most one play and takes it out of the book, so a second answer, or a late one after the
+  expiry, publishes nothing; with nothing pending, no input publishes a play. (Left as an
+  assumption: message ids don't wrap within a session, 2^32 lookups.)
 - An ended session does nothing more; a lost link ends the session (offline first when the broker
   still listens); Music Assistant's pings get their pongs; the reconnect waits stay in 1..60 s.
 - The config's summary never shows the token or the password.
@@ -205,8 +210,8 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 
 ## Open items
 
-- Not proven yet: each final play is published exactly once; the scanner's bounds (captures,
-  text, depth) for every input.
+- Not proven yet: the scanner's bounds (captures, text, depth) for every input; that every
+  pending play is eventually published (each tick publishes the oldest due one).
 - A fake Music Assistant and chaos tests (cuts, stalls, garbage, restarts), and a random-session
   simulator for the core, as the I/O shell isn't proven.
 - `player_removed`: mark the player unavailable.

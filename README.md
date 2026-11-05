@@ -50,12 +50,13 @@ Building needs [Bend](https://github.com/HigherOrderCO/bend) and Docker (for the
 
 ## How it is made
 
-It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 92. The wire
+It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 101. The wire
 formats are pinned to bytes real peers sent or accepted (RFC 6455's examples, Music Assistant's
 messages). Others hold for every input:
 - only values at the paths it declares ever leave the JSON scanner, so a device's details, MAC or
   IP address can't reach a payload;
 - nothing is published before the session is live;
+- each finished play is published once: never twice, and never without a final report;
 - no two players share a topic;
 - however a socket splits the stream, the decoders read the same;
 - a learned player is never renamed;

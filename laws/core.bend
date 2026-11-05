@@ -408,3 +408,43 @@ law plays_progress_report_does_nothing:
   for fully: Bool
   for player: B.Bytes
   {K.played(c, t, Model.Play{item, secs, fully, False{}, player}) == K.Out{c, Nil{}} : K.Out}
+
+# Whether the actions publish a play.
+def played.any(as: List<&2, K.Action>) -> Bool:
+  match as:
+    case Nil{}:
+      False{}
+    case a <> t:
+      Bool.or(played.is(a), played.any(t))
+
+def idle.at(conf: C.Conf, ph: K.Phase, +n: U32, up: Bool, clock: K.Clock, names: T.Names,
+    known: List<&2, K.Known>, +plays: U32) -> K.Core:
+  K.Core{conf, K.Session{ph, n, up}, clock, K.Book{names, known, Nil{}, plays}}
+
+# For every core with no play pending, and every input: no play is published (a play comes only
+# out of the book: from a final report, through its lookup).
+law plays_none_from_nowhere_listing:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +plays: U32
+  for +t: K.Time
+  for +ev: K.Input
+  {played.any(K.out.actions(K.step(idle.at(conf, K.Listing{}, n, up, clock, names, known, plays),
+      t, ev))) == False{} : Bool}
+
+law plays_none_from_nowhere_live:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +plays: U32
+  for +t: K.Time
+  for +ev: K.Input
+  {played.any(K.out.actions(K.step(idle.at(conf, K.Live{}, n, up, clock, names, known, plays),
+      t, ev))) == False{} : Bool}
