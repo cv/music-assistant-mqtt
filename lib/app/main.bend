@@ -11,6 +11,8 @@ import ../ma/api.bend as Api
 import ../ma/link.bend as L
 import ../bridge/conf.bend as C
 import ../bridge/core.bend as Core
+import ../bridge/deck.bend as D
+import ../bridge/top.bend as Top
 import ../bridge/topics.bend as T
 import ./readers.bend as R
 # One session as I/O: connect the broker, start its reader, then carry out the core's steps
@@ -41,7 +43,7 @@ def life.last_end(l: Life) -> String:
 # How a session ended: whether it went live, why, and the plays it left waiting (their lookups
 # never answered; the next session looks them up again).
 type Ended is Data:
-  Ended{up: Bool, why: String, left: List<&2, Core.Pending>}
+  Ended{up: Bool, why: String, left: List<&2, Core.Pending>, recent: List<&2, D.Recent>}
 
 # Music Assistant's socket, once opened.
 type Ma is Type:
@@ -53,7 +55,7 @@ type Loop is Data:
   Loop{inbox: List<&2, Core.Input>, tick: U32}
 
 type Main is Type:
-  Main{mq: Socket, ma: Ma, events: Chan(R.Ev), core: Core.Core, life: Life, loop: Loop}
+  Main{mq: Socket, ma: Ma, events: Chan(R.Ev), core: Top.Top, life: Life, loop: Loop}
 
 # Time
 # ----
@@ -73,7 +75,7 @@ def push(l: Loop, i: Core.Input) -> Loop:
 # -------
 
 def sent.mq(p: Socket & Poll<&1, &1, Result<&1, &1, (U32 & String) & B.Bytes, Unit>, B.Bytes>,
-    ma: Ma, events: Chan(R.Ev), core: Core.Core, life: Life, loop: Loop) -> IO(Main):
+    ma: Ma, events: Chan(R.Ev), core: Top.Top, life: Life, loop: Loop) -> IO(Main):
   (mq, r) = p
   match r:
     case Ready{Done{_}}:
@@ -94,7 +96,7 @@ def ma.lost(why: String) -> Core.Input:
   Core.MaHeard{L.Lost{why}}
 
 def sent.ma(p: Socket & Poll<&1, &1, Result<&1, &1, (U32 & String) & B.Bytes, Unit>, B.Bytes>,
-    mq: Socket, events: Chan(R.Ev), core: Core.Core, life: Life, loop: Loop) -> IO(Main):
+    mq: Socket, events: Chan(R.Ev), core: Top.Top, life: Life, loop: Loop) -> IO(Main):
   (s, r) = p
   match r:
     case Ready{Done{_}}:
@@ -131,11 +133,11 @@ def send.ma.pong(m: Main, payload: B.Bytes) -> IO(Main):
 # ------------------------------
 
 def opened.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, mq: Socket, +events: Chan(R.Ev),
-    +core: Core.Core, life: Life, loop: Loop) -> IO(Main):
+    +core: Top.Top, life: Life, loop: Loop) -> IO(Main):
   (s, r) = p
   match r:
     case Done{reader}:
-      +ma = C.conf.ma(Core.core.conf(core))
+      +ma = C.conf.ma(Core.core.conf(Top.top.core(core)))
       do IO<Main>:
         IO.spawn(R.MaReader, Rn.Run.forever(~R.MaReader, ~R.ma_reader.live, ~R.ma_reader.step,
           R.MaUp{reader, L.start(), events}))
@@ -148,7 +150,7 @@ def opened.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, mq: Socket, +ev
           push(loop, ma.lost("no second handle on its socket"))}
 
 def opened(r: Result<&1, &1, U32 & String, Socket>, mq: Socket, events: Chan(R.Ev),
-    core: Core.Core, life: Life, loop: Loop) -> IO(Main):
+    core: Top.Top, life: Life, loop: Loop) -> IO(Main):
   match r:
     case Done{s}:
       do IO<Main>:
@@ -173,7 +175,7 @@ def close.ma(ma: Ma) -> IO(Unit):
 def open.ma(m: Main) -> IO(Main):
   match m:
     case Main{mq, ma, events, +core, life, loop}:
-      +c = C.conf.ma(Core.core.conf(core))
+      +c = C.conf.ma(Core.core.conf(Top.top.core(core)))
       do IO<Main>:
         close.ma(ma)
         r : Result<&1, &1, U32 & String, Socket> <- Nt.Net.connect(C.ma.host(c), C.ma.port(c))
@@ -279,15 +281,15 @@ def health.one(+prefix: String, name: String, value: String) -> B.Bytes:
   M.encode(M.Publish{False{}, 0, True{}, T.topic.health(prefix, name), 0, B.utf8(value)})
 
 # The reports under <prefix>/$bridge/, retained.
-def report.bytes(+core: Core.Core, l: Life, +unix: U32, mem: String) -> B.Bytes:
+def report.bytes(+core: Top.Top, l: Life, +unix: U32, mem: String) -> B.Bytes:
   match l:
     case Life{v, +started, n, e}:
-      +p = Core.core.prefix(core)
+      +p = Core.core.prefix(Top.top.core(core))
       B.flat([health.one(p, "version", v),
         health.one(p, "uptime_s", U32.show((unix - started : U32))),
         health.one(p, "sessions", U32.show(n)), health.one(p, "last_end", or_none(e)),
-        health.one(p, "plays", U32.show(Core.core.plays(core))),
-        health.one(p, "players", Nat.show(Core.core.players(core))),
+        health.one(p, "plays", U32.show(Core.core.plays(Top.top.core(core)))),
+        health.one(p, "players", Nat.show(Core.core.players(Top.top.core(core)))),
         health.one(p, "memory_kb", mem)])
 
 def report.send(m: Main, +unix: U32, mem: String) -> IO(Main):
@@ -309,7 +311,7 @@ def act.append(m: Main, line: B.Bytes) -> IO(Main):
   match m:
     case Main{mq, ma, events, +core, life, loop}:
       do IO<Main>:
-        plays.append(C.out.plays(C.conf.out(Core.core.conf(core))), line)
+        plays.append(C.out.plays(C.conf.out(Core.core.conf(Top.top.core(core)))), line)
         return Main{mq, ma, events, core, life, loop}
 
 def act.ended(m: Main, why: String) -> Main:
@@ -351,8 +353,8 @@ def acts(as: List<&2, Core.Action>, m: Main, +t: Core.Time) -> IO(Main):
 def handle(m: Main, +t: Core.Time, i: Core.Input) -> IO(Main):
   match m:
     case Main{mq, ma, events, core, life, loop}:
-      +o = Core.step(core, t, i)
-      acts(Core.out.actions(o), Main{mq, ma, events, Core.out.core(o), life, loop}, t)
+      +o = Top.step(core, t, i)
+      acts(Top.out.actions(o), Main{mq, ma, events, Top.out.top(o), life, loop}, t)
 
 # The main loop
 # -------------
@@ -424,7 +426,7 @@ def main.live.if_over(over: Bool, m: Main) -> Rn.Next<Main>:
 def main.live(m: Main) -> Rn.Next<Main>:
   match m:
     case Main{mq, ma, events, +core, life, loop}:
-      main.live.if_over(Core.is.over(Core.core.phase(core)), Main{mq, ma, events, core, life, loop})
+      main.live.if_over(Core.is.over(Core.core.phase(Top.top.core(core))), Main{mq, ma, events, core, life, loop})
 
 # The session
 # -----------
@@ -437,19 +439,22 @@ def finish(m: Main) -> IO(Ended):
         shut(mq)
         close.ma(ma)
         Chan.close(R.Ev, events)
-        return Ended{Core.core.up(core), life.last_end(life), Core.core.left(core)}
+        return Ended{Core.core.up(Top.top.core(core)), life.last_end(life), Core.core.left(Top.top.core(core)),
+          Top.top.recent(core)}
 
 def session.begin(+t: Nat, +u: U32, mq: Socket, +events: Chan(R.Ev), +conf: C.Conf, life: Life,
-    held: List<&2, Core.Pending>) -> IO(Ended):
-  +o = Core.start(conf, time.of(t, u), held)
+    held: List<&2, Core.Pending>,
+    recent: List<&2, D.Recent>) -> IO(Ended):
+  +o = Top.start(conf, time.of(t, u), held, recent)
   do IO<Ended>:
-    m : Main <- acts(Core.out.actions(o), Main{mq, MaClosed{}, events, Core.out.core(o), life,
+    m : Main <- acts(Top.out.actions(o), Main{mq, MaClosed{}, events, Top.out.top(o), life,
       Loop{Nil{}, U32.from_nat(t)}}, time.of(t, u))
     m : Main <- Rn.Run.forever(~Main, ~main.live, ~main.step, m)
     finish(m)
 
 def session.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, +events: Chan(R.Ev),
-    +conf: C.Conf, life: Life, held: List<&2, Core.Pending>) -> IO(Ended):
+    +conf: C.Conf, life: Life, held: List<&2, Core.Pending>,
+    recent: List<&2, D.Recent>) -> IO(Ended):
   (mq, r) = p
   match r:
     case Done{reader}:
@@ -458,30 +463,32 @@ def session.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, +events: Chan(
           R.MqUp{reader, Nil{}, events}))
         t : Nat <- IO.now()
         u : U32 <- Ck.Clock.unix()
-        session.begin(t, u, mq, events, conf, life, held)
+        session.begin(t, u, mq, events, conf, life, held, recent)
     case Fail{_}:
       do IO<Ended>:
         Socket.close(mq)
         Chan.close(R.Ev, events)
-        return Ended{False{}, "no second handle on the broker's socket", held}
+        return Ended{False{}, "no second handle on the broker's socket", held, recent}
 
 def session.connected(r: Result<&1, &1, U32 & String, Socket>, +events: Chan(R.Ev),
-    +conf: C.Conf, life: Life, held: List<&2, Core.Pending>) -> IO(Ended):
+    +conf: C.Conf, life: Life, held: List<&2, Core.Pending>,
+    recent: List<&2, D.Recent>) -> IO(Ended):
   match r:
     case Done{mq}:
       do IO<Ended>:
         p : Socket & Result<&1, &1, U32 & String, Socket> <- Sk.Sock.dup(mq)
-        session.dup(p, events, conf, life, held)
+        session.dup(p, events, conf, life, held, recent)
     case Fail{_}:
       do IO<Ended>:
         Chan.close(R.Ev, events)
-        return Ended{False{}, "can't connect the broker (unreachable, or its name unknown)", held}
+        return Ended{False{}, "can't connect the broker (unreachable, or its name unknown)", held, recent}
 
 # One session, from connecting the broker to the end: whether it went live, why it ended, the plays
 # it left waiting (held: those the last one left).
-def session(+conf: C.Conf, life: Life, held: List<&2, Core.Pending>) -> IO(Ended):
+def session(+conf: C.Conf, life: Life, held: List<&2, Core.Pending>,
+    recent: List<&2, D.Recent>) -> IO(Ended):
   +mq = C.conf.mq(conf)
   do IO<Ended>:
     events : Chan(R.Ev) <- Chan.new(R.Ev, 16)
     r : Result<&1, &1, U32 & String, Socket> <- Nt.Net.connect(C.mq.host(mq), C.mq.port(mq))
-    session.connected(r, events, conf, life, held)
+    session.connected(r, events, conf, life, held, recent)

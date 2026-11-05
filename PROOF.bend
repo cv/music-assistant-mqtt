@@ -9,3 +9,4 @@ import ./proofs/topics.bend as PTopics
 import ./proofs/link.bend as PLink
 import ./proofs/conf.bend as PConf
 import ./proofs/core.bend as PCore
+import ./proofs/deck.bend as PDeck

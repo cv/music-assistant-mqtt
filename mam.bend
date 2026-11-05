@@ -5,6 +5,7 @@ import ./lib/net/clock.bend as Ck
 import ./lib/wire/bytes.bend as B
 import ./lib/bridge/conf.bend as C
 import ./lib/bridge/core.bend as Core
+import ./lib/bridge/deck.bend as D
 import ./lib/app/main.bend as App
 # music-assistant-mqtt: Music Assistant's players and plays, published to MQTT.
 #
@@ -33,24 +34,25 @@ def sleep_fed(fuel: Nat, +left: U32) -> IO(Unit):
 
 # Across sessions: the backoff step, the process's life, the config, the plays left waiting.
 type Loop is Data:
-  Loop{step: Nat, life: App.Life, conf: C.Conf, held: List<&2, Core.Pending>}
+  Loop{step: Nat, life: App.Life, conf: C.Conf, held: List<&2, Core.Pending>,
+    recent: List<&2, D.Recent>}
 
 def again.ended(e: App.Ended, +step: Nat, life: App.Life, +conf: C.Conf) -> IO(Loop):
   match e:
-    case App.Ended{+up, +why, left}:
+    case App.Ended{+up, +why, left, recent}:
       +next = Core.backoff.next(step, up)
       do IO<Loop>:
         IO.print("session ended: " ++ why ++ "; next in " ++ U32.show(Core.backoff.wait(next))
           ++ " ms")
         sleep_fed(7n, Core.backoff.wait(next))
-        return Loop{next, App.life.ended(life, why), conf, left}
+        return Loop{next, App.life.ended(life, why), conf, left, recent}
 
 def again.step(l: Loop) -> IO(Loop):
   match l:
-    case Loop{+step, life, +conf, held}:
+    case Loop{+step, life, +conf, held, recent}:
       +l1 = App.life.begin(life)
       do IO<Loop>:
-        e : App.Ended <- App.session(conf, l1, held)
+        e : App.Ended <- App.session(conf, l1, held, recent)
         again.ended(e, step, l1, conf)
 
 def again.live(l: Loop) -> Rn.Next<Loop>:
@@ -69,7 +71,7 @@ def run(+conf: C.Conf, +started: U32) -> IO(Unit):
   do IO<Unit>:
     IO.print("music-assistant-mqtt " ++ version() ++ ": " ++ C.summary(conf))
     l : Loop <- Rn.Run.forever(~Loop, ~again.live, ~again.step,
-      Loop{0n, App.Life{version(), started, 0, ""}, conf, Nil{}})
+      Loop{0n, App.Life{version(), started, 0, ""}, conf, Nil{}, Nil{}})
     return Unit{}
 
 def start.if_ok(fatal: Bool, +conf: C.Conf) -> IO(Unit):

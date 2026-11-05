@@ -7,3 +7,4 @@ import ./laws/topics.bend as Lt
 import ./laws/link.bend as Ll
 import ./laws/conf.bend as Lc
 import ./laws/core.bend as Lk
+import ./laws/deck.bend as Ld
