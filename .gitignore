@@ -4,3 +4,4 @@ out/
 plays.jsonl
 *.c
 !lib/net/effs/*.c
+.capture/
