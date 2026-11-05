@@ -186,6 +186,10 @@ def topic.status(prefix: String) -> String:
 def topic.state(prefix: String, level: B.Bytes) -> String:
   prefix ++ "/" ++ B.from_utf8(level) ++ "/state"
 
+# A player's queue window (lib/bridge/deck.bend).
+def topic.queue(prefix: String, level: B.Bytes) -> String:
+  prefix ++ "/" ++ B.from_utf8(level) ++ "/queue"
+
 def topic.played(prefix: String) -> String:
   prefix ++ "/played"
 
