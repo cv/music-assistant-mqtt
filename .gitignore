@@ -1,0 +1,6 @@
+out/
+*.conf
+!deploy/*.conf.example
+plays.jsonl
+*.c
+!lib/net/effs/*.c
