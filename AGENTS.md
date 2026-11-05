@@ -17,10 +17,12 @@ API and publishes:
   appended to a JSON-lines file, the durable history;
 - its own health (`<prefix>/$bridge/…`).
 
-It never sends Music Assistant anything but its login and library lookups: it can't control a
-player (a law).
+It never sends Music Assistant anything but its login, the player list and library lookups: it
+can't control a player (the core's ToMa action carries an `Api.Command`, and Api has only those
+three).
 
-Status: being built (2026-11-05).
+Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
+container (`deploy/`); 83 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 
@@ -41,7 +43,8 @@ Dependencies point down this list: a module imports only modules listed before i
 ```
 mam.bend              the program: arguments, the configuration, the reconnect loop
 LAWS.bend PROOF.bend  index files importing every area under laws/ and proofs/
-laws/ proofs/         the laws and their proofs by area: wire (bytes, MQTT), ws, json, ma, core
+laws/ proofs/         the laws and their proofs by area: wire (bytes, MQTT), ws, json, ma, topics,
+                      link, conf, core
 lib/
   wire/     pure encodings, no I/O
     bytes.bend   byte lists, UTF-8, base64, the Rd reader monad, beq
@@ -51,20 +54,25 @@ lib/
     json.bend    a streaming JSON scanner that keeps only wanted paths (bounded captures), and
                  JSON output with escaping
   net/      effects (C, in net/effs/): Net.connect (by name, 10 s), Sock.dup and
-            Sock.shutdown, Sd.notify, Run.forever
+            Sock.shutdown, Sd.notify, Clock.unix (the wall clock), Run.forever
   ma/       Music Assistant's API (pure)
-    api.bend     the commands we send (auth, music/item_by_uri), and what a message is: server
-                 info, a result, an error, an event
-    model.bend   players, play reports, catalog ids, from the scanner's captures
+    api.bend     the three commands we send (auth, players/all, music/item_by_uri) and the paths
+                 kept of what the server sends
+    model.bend   what a message is (hello, reply, refusal, event) and, in it, players, play
+                 reports, catalog ids
+    link.bend    the websocket decoder feeding the scanner byte by byte: whole messages, pings,
+                 the end
   bridge/   the decisions (pure, covered by laws)
     conf.bend    the config file: every problem numbered by line, secrets never echoed
     topics.bend  topic names, player slugs (unique, no + # /), the payloads
     core.bend    one step: state + event → state + actions (sessions, login, lookups, publishes,
                  heartbeats, the reconnect backoff)
-  app/      I/O: readers per socket feeding a channel, the main loop carrying out core's actions
-progs/      sim_core.bend (random sessions through the core, invariants), smoke tests
-tools/      cross-build.sh (linux/arm64 in Docker), fakema.py (a fake Music Assistant), chaos.py
-deploy/     Dockerfile, an example compose.yaml, the config example
+  app/      I/O
+    readers.bend one reader per socket (broker, Music Assistant) feeding one channel
+    main.bend    a session: connect, then carry out the core's actions until it ends (sends,
+                 opening Music Assistant's link, the plays file, health reports, the log)
+tools/      cross-build.sh (linux/arm64 in Docker), deploy.sh (build, copy, compose up on a host)
+deploy/     Dockerfile (distroless), an example compose.yaml, the config example
 ```
 
 ## How it works
@@ -76,13 +84,13 @@ runs sessions in a loop:
 
 1. Connect the broker (MQTT, login, a retained `<prefix>/status offline` will) and wait up to
    10 s for it to accept; then Music Assistant (`ws://<ma_host>:<ma_port>/ws`).
-2. Music Assistant sends its server info; we send `auth` with the token. After its success
-   answer it streams every event.
-3. Ask `players/all` once to learn every player's name and state; publish `status online` and
-   each player's state.
-4. Events: `player_added` / `player_updated` / `player_removed` change and republish a
-   player's state when a published field changed; `media_item_played` with `is_playing` false
-   is a play: look up its library item (`music/item_by_uri`) for catalog ids (Apple Music,
+2. Music Assistant sends its server info; we send `auth` with the token (message id 1). After
+   its success answer it streams every event (it echoes message ids as strings).
+3. Ask `players/all` once (id 2) to learn every player's name and state; publish `status
+   online` and each player's state.
+4. Events: `player_added` / `player_updated` republish a player's state when a published field
+   changed (`player_removed` is ignored for now); `media_item_played` with `is_playing` false
+   is a play: look up its library item (`music/item_by_uri`, ids from 3 up) for catalog ids (Apple Music,
    Spotify, …, and the ISRC), then publish it and append it to the plays file. A lookup that
    doesn't answer within 10 s publishes the play without ids.
 5. A lost link, a refused login, or silence ends the session: `status offline`, disconnect,
@@ -101,14 +109,15 @@ runs sessions in a loop:
 
 - `<prefix>/status`: `online` / `offline` (retained; the will).
 - `<prefix>/<player>/state` (retained JSON): `{"name", "state" (playing/paused/idle/off),
-  "available", "source", "volume", "title", "artist", "album", "uri", "duration"}`. The elapsed
+  "available", "source", "synced_to" (the player it is grouped under), "volume", "title",
+  "artist", "album", "uri", "duration"}`; device details (MAC, IP) are never kept. The elapsed
   time is left out, so it changes only when something real does.
 - `<prefix>/played` (JSON, not retained): `{"at" (Unix s), "player", "player_id", "uri", "name",
   "artist", "album", "duration", "seconds_played", "fully_played", "ids" {"apple_music": …,
-  "spotify": …}, "isrc"}`. Music Assistant calls a track fully played at 90 % or within 10 s of
+  "spotify": …}, "isrc"}`; `at` is the wall clock when the final report came. Music Assistant calls a track fully played at 90 % or within 10 s of
   its end.
-- `<prefix>/$bridge/`: `version`, `uptime_s`, `sessions`, `last_end`, `plays`,
-  `memory_kb` (retained, every 60 s).
+- `<prefix>/$bridge/`: `version`, `uptime_s`, `sessions`, `last_end` (`none` at first),
+  `plays`, `players`, `memory_kb` (retained, 10 s after going live, then every 60 s).
 - `<player>` is the player's name as a slug (`living_room`); a clash gets the id's last 4
   characters. Names learned later join without renaming anyone; renames apply next session.
 
@@ -128,6 +137,15 @@ topic_prefix <level>      # (music)
 client_id <id>            # (music-assistant-mqtt)
 plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 ```
+
+## Testing
+
+- `bend PROOF.bend`: every law (about 16 s).
+- On a Linux host next to Music Assistant: `tools/cross-build.sh mam.bend out/mam`, a throwaway
+  broker (`docker run --network host eclipse-mosquitto:2` with a localhost listener), a config
+  pointing at both, then `mosquitto_sub -v -t 'music/#'`.
+- On macOS a freshly built binary can't reach the LAN (Local Network privacy answers `No route
+  to host` without asking); loopback works, so test on Linux or through a tunnel.
 
 ## Bend notes (2.0.39)
 
@@ -158,7 +176,19 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
   `h : {expr == b}`, then `match b`. Prefer equations over implications for induction
   (`feed(s, xs ++ ys) == feed(feed(s, xs), ys)`). Refute with a `disc` motive and `ex_falso`.
 - `Chan(A)` is `Data`; sockets are not.
+- Constructor names share one space with Base's: `Text`, `Done`, `Key`, `Event` are taken.
+- Match parameters in their order; a field bound by a pattern can't be matched after a later
+  parameter. Termination reads the arguments left to right: put the shrinking one first.
+- A pattern variable used twice needs `+` (`case Some{+l}`, `case 1n+(+p)`).
+- No hex literals; bitwise and is `.&.`, shifts take a Nat (`x >> 8n`).
+- `IO.now()` counts milliseconds from an arbitrary start (intervals only): dates need
+  `Clock.unix`. An effect returns a number as the term itself (`return (Term)(u32)x;`).
+- A program importing a law file must import its proofs too (unfilled laws are errors).
 
 ## Open items
 
-- Everything above is the plan; the code is being written module by module.
+- A fake Music Assistant and chaos tests (cuts, stalls, garbage, restarts), and a random-session
+  simulator for the core, as the I/O shell isn't proven.
+- `player_removed`: mark the player unavailable.
+- Home Assistant discovery for the players' states (sensors), optional.
+- Releases: an image built by CI (linux/arm64 and amd64).
