@@ -342,9 +342,13 @@ law plays_answered_twice_is_silent:
       K.answered(live.at(conf, n, up, clock, names, known, pending, plays, held), id, ids1)), id, ids2))
     == Nil{} : List<&2, K.Action>}
 
-# For every book and time: each expiry (the oldest lookup that waited too long; a tick runs one
-# per overdue lookup) publishes at most one play.
-law plays_expiry_publishes_at_most_one:
+# Lookups that wait too long
+# --------------------------
+# A live tick splits the pending plays: those whose lookup waited too long (due) are published
+# without ids, once each; the rest stay, without any answering a due play's id.
+
+# For every live core and time: each due play is published once.
+law plays_tick_publishes_each_due_once:
   for +conf: C.Conf
   for +n: U32
   for +up: Bool
@@ -355,19 +359,11 @@ law plays_expiry_publishes_at_most_one:
   for +plays: U32
   for +held: List<&2, K.Pending>
   for +now: U32
-  {Nat.is_lt(played.count(K.out.actions(K.expire.on(K.expired(pending, now),
-      live.at(conf, n, up, clock, names, known, pending, plays, held)))), 2n) == True{} : Bool}
+  {played.count(K.out.actions(K.routine.expire(True{}, live.at(conf, n, up, clock, names, known, pending, plays, held), now)))
+    == List.length(&2, K.Pending, K.split.due(K.split(pending, now))) : Nat}
 
-# The answer that comes after its play expired (its own id bytes): nothing, when one expired.
-def late.on(m: Maybe<&2, K.Pending>, +c: K.Core, ids: Model.Ids) -> List<&2, K.Action>:
-  match m:
-    case None{}:
-      Nil{}
-    case Some{+pd}:
-      K.out.actions(K.answered(K.out.core(K.expire.on(Some{pd}, c)),
-        B.utf8(U32.show(K.pending.id(pd))), ids))
-
-law plays_late_answer_is_silent:
+# For every live core and time: what stays pending is the rest, without a due play's answer.
+law plays_tick_keeps_the_rest:
   for +conf: C.Conf
   for +n: U32
   for +up: Bool
@@ -378,9 +374,38 @@ law plays_late_answer_is_silent:
   for +plays: U32
   for +held: List<&2, K.Pending>
   for +now: U32
-  for ids: Model.Ids
-  {late.on(K.expired(pending, now), live.at(conf, n, up, clock, names, known, pending, plays, held), ids)
-    == Nil{} : List<&2, K.Action>}
+  {K.book.pending(K.core.book(K.out.core(K.routine.expire(True{}, live.at(conf, n, up, clock, names, known, pending, plays, held), now))))
+    == K.drop.all(K.split.due(K.split(pending, now)), K.split.kept(K.split(pending, now)))
+    : List<&2, K.Pending>}
+
+# Liveness: for every live core and time, after the tick no lookup has waited too long.
+law plays_nothing_overdue_after_tick:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +pending: List<&2, K.Pending>
+  for +plays: U32
+  for +held: List<&2, K.Pending>
+  for +now: U32
+  {K.expired(K.book.pending(K.core.book(K.out.core(K.routine.expire(True{}, live.at(conf, n, up, clock, names, known, pending, plays, held), now)))), now)
+    == None{} : Maybe<&2, K.Pending>}
+
+# For every play d among the due ones (anywhere in the list) and pending plays: once the due
+# plays' answers are dropped, none answers d's id, so its late answer publishes nothing.
+def late.find(+ds: List<&2, K.Pending>, +ps: List<&2, K.Pending>, +id: B.Bytes)
+    -> Maybe<&2, K.Pending>:
+  K.pending.find(K.drop.all(ds, ps), id, K.pending.head(K.drop.all(ds, ps), id))
+
+law plays_late_answer_finds_nothing:
+  for +before: List<&2, K.Pending>
+  for +d: K.Pending
+  for +after: List<&2, K.Pending>
+  for +ps: List<&2, K.Pending>
+  {late.find(List.append(&2, K.Pending, before, d <> after), ps, K.pending.idb(d))
+    == None{} : Maybe<&2, K.Pending>}
 
 # For every live core and final report: it goes pending under the next id, with one lookup.
 law plays_final_report_goes_pending:

@@ -456,44 +456,279 @@ def Lk.plays_answered_twice_is_silent(conf, n, up, clock, names, known, pending,
   twice.on(K.pending.find(pending, id, K.pending.head(pending, id)), conf, n, up, clock, names,
     known, pending, plays, held, id, ids1, ids2, {==})
 
-def expire_one.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
-    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+# Lookups that wait too long
+# --------------------------
+
+# How many plays the actions publish, over an append: the sum.
+def add_played(b: Bool, +n: Nat, +m: Nat)
+    -> {Nat.add(Lk.played.add(b, n), m) == Lk.played.add(b, Nat.add(n, m)) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def count_app(xs: List<&2, K.Action>, +ys: List<&2, K.Action>)
+    -> {Lk.played.count(List.append(&2, K.Action, xs, ys))
+        == Nat.add(Lk.played.count(xs), Lk.played.count(ys)) : Nat}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      %Equal.sym(Nat, Lk.played.count(List.append(&2, K.Action, t, ys)),
+          Nat.add(Lk.played.count(t), Lk.played.count(ys)), count_app(t, ys)) :
+        {Lk.played.add(Lk.played.is(x), _)
+          == Nat.add(Lk.played.add(Lk.played.is(x), Lk.played.count(t)), Lk.played.count(ys)) : Nat}
+      Equal.sym(Nat, Nat.add(Lk.played.add(Lk.played.is(x), Lk.played.count(t)), Lk.played.count(ys)),
+        Lk.played.add(Lk.played.is(x), Nat.add(Lk.played.count(t), Lk.played.count(ys))),
+        add_played(Lk.played.is(x), Lk.played.count(t), Lk.played.count(ys)))
+
+# Publishing the due plays: one play each, and the pending list as it was.
+def dues_count(ds: List<&2, K.Pending>, +conf: C.Conf, +s: K.Session, +k: K.Clock,
+    +names: T.Names, +known: List<&2, K.Known>, +pend: List<&2, K.Pending>, +plays: U32,
     +held: List<&2, K.Pending>)
-    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.expire.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held)))), 2n) == True{} : Bool}:
+    -> {Lk.played.count(K.out.actions(K.expire.dues(ds, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}})))
+        == List.length(&2, K.Pending, ds) : Nat}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +d <> +t:
+      %Equal.sym(Nat,
+          Lk.played.count(List.append(&2, K.Action, K.publish.play.acts(names, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}}, d, K.no_ids()),
+            K.out.actions(K.expire.dues(t, K.Core{conf, s, k, K.Book{names, known, pend,
+              (plays + 1 : U32), held}})))),
+          Nat.add(Lk.played.count(K.publish.play.acts(names, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}}, d, K.no_ids())),
+            Lk.played.count(K.out.actions(K.expire.dues(t, K.Core{conf, s, k, K.Book{names, known,
+              pend, (plays + 1 : U32), held}})))),
+          count_app(K.publish.play.acts(names, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}}, d, K.no_ids()),
+            K.out.actions(K.expire.dues(t, K.Core{conf, s, k, K.Book{names, known, pend,
+              (plays + 1 : U32), held}})))) :
+        {_ == 1n+List.length(&2, K.Pending, t) : Nat}
+      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}}, d, K.no_ids())), 1n,
+          acts_one(names, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}}, d, K.no_ids())) :
+        {Nat.add(_, Lk.played.count(K.out.actions(K.expire.dues(t, K.Core{conf, s, k, K.Book{names,
+          known, pend, (plays + 1 : U32), held}})))) == 1n+List.length(&2, K.Pending, t) : Nat}
+      %Equal.sym(Nat, Lk.played.count(K.out.actions(K.expire.dues(t, K.Core{conf, s, k, K.Book{names,
+            known, pend, (plays + 1 : U32), held}}))), List.length(&2, K.Pending, t),
+          dues_count(t, conf, s, k, names, known, pend, (plays + 1 : U32), held)) :
+        {Nat.add(1n, _) == 1n+List.length(&2, K.Pending, t) : Nat}
+      {==}
+
+def dues_keep(ds: List<&2, K.Pending>, +conf: C.Conf, +s: K.Session, +k: K.Clock,
+    +names: T.Names, +known: List<&2, K.Known>, +pend: List<&2, K.Pending>, +plays: U32,
+    +held: List<&2, K.Pending>)
+    -> {K.book.pending(K.core.book(K.out.core(K.expire.dues(ds, K.Core{conf, s, k, K.Book{names, known, pend, plays, held}})))) == pend
+        : List<&2, K.Pending>}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +d <> +t:
+      dues_keep(t, conf, s, k, names, known, pend, (plays + 1 : U32), held)
+
+def Lk.plays_tick_publishes_each_due_once(conf, n, up, clock, names, known, pending, plays, held,
+    now):
+  dues_count(K.split.due(K.split(pending, now)), conf, K.Session{K.Live{}, n, up}, clock, names,
+    known, K.drop.all(K.split.due(K.split(pending, now)), K.split.kept(K.split(pending, now))),
+    plays, held)
+
+def Lk.plays_tick_keeps_the_rest(conf, n, up, clock, names, known, pending, plays, held, now):
+  dues_keep(K.split.due(K.split(pending, now)), conf, K.Session{K.Live{}, n, up}, clock, names,
+    known, K.drop.all(K.split.due(K.split(pending, now)), K.split.kept(K.split(pending, now))),
+    plays, held)
+
+# Nothing overdue: the kept plays have none, and dropping plays never makes one.
+def is_none(m: Maybe<&2, K.Pending>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{_}:
+      False{}
+
+def free(+ps: List<&2, K.Pending>, +now: U32) -> Bool:
+  is_none(K.expired(ps, now))
+
+def kept_free.on(b: Bool, +i: U32, +pl: Model.Play, +u: U32, +s0: U32, +t: List<&2, K.Pending>,
+    +now: U32, +hb: {K.since(now, s0, K.lookup_wait()) == b : Bool},
+    +ih: {free(K.split.kept(K.split(t, now)), now) == True{} : Bool})
+    -> {free(K.split.kept(K.split.if(b, K.Pending{i, pl, u, s0}, K.split(t, now))), now) == True{} : Bool}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      %Equal.sym(Bool, K.since(now, s0, K.lookup_wait()), False{}, hb) :
+        {is_none(K.expired.if(_, K.Pending{i, pl, u, s0}, K.expired(K.split.kept(K.split(t, now)), now))) == True{}
+          : Bool}
+      ih
+
+def kept_free(+ps: List<&2, K.Pending>, +now: U32)
+    -> {free(K.split.kept(K.split(ps, now)), now) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> +t:
+      match p:
+        case K.Pending{+i, +pl, +u, +s0}:
+          kept_free.on(K.since(now, s0, K.lookup_wait()), i, pl, u, s0, t, now, {==}, kept_free(t, now))
+
+def drop_free.on(b: Bool, a: Bool, +i: U32, +pl: Model.Play, +u: U32, +s0: U32,
+    +t: List<&2, K.Pending>, +id: B.Bytes, +now: U32,
+    +hb: {K.since(now, s0, K.lookup_wait()) == b : Bool},
+    +ha: {K.pending.answers(K.Pending{i, pl, u, s0}, id) == a : Bool},
+    +ih: {Bool.and(free(t, now), Bool.not(free(K.pending.drop(t, id), now))) == False{} : Bool})
+    -> {Bool.and(free(K.Pending{i, pl, u, s0} <> t, now), Bool.not(free(K.pending.drop.if(a, K.Pending{i, pl, u, s0},
+        K.pending.drop(t, id)), now))) == False{} : Bool}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, K.since(now, s0, K.lookup_wait()), True{}, hb) :
+        {Bool.and(is_none(K.expired.if(_, K.Pending{i, pl, u, s0}, K.expired(t, now))),
+          Bool.not(free(K.pending.drop.if(a, K.Pending{i, pl, u, s0}, K.pending.drop(t, id)), now))) == False{}
+          : Bool}
+      {==}
+    case False{}:
+      match a:
+        case True{}:
+          %Equal.sym(Bool, K.since(now, s0, K.lookup_wait()), False{}, hb) :
+            {Bool.and(is_none(K.expired.if(_, K.Pending{i, pl, u, s0}, K.expired(t, now))),
+              Bool.not(free(K.pending.drop(t, id), now))) == False{} : Bool}
+          ih
+        case False{}:
+          %Equal.sym(Bool, K.since(now, s0, K.lookup_wait()), False{}, hb) :
+            {Bool.and(is_none(K.expired.if(_, K.Pending{i, pl, u, s0}, K.expired(t, now))),
+              Bool.not(is_none(K.expired.if(_, K.Pending{i, pl, u, s0}, K.expired(K.pending.drop(t, id), now)))))
+              == False{} : Bool}
+          ih
+
+def drop_free.at(+i: U32, +pl: Model.Play, +u: U32, +s0: U32, +t: List<&2, K.Pending>,
+    +id: B.Bytes, +now: U32, a: Bool, +ha: {K.pending.answers(K.Pending{i, pl, u, s0}, id) == a : Bool},
+    +ih: {Bool.and(free(t, now), Bool.not(free(K.pending.drop(t, id), now))) == False{} : Bool})
+    -> {Bool.and(free(K.Pending{i, pl, u, s0} <> t, now), Bool.not(free(K.pending.drop.if(a, K.Pending{i, pl, u, s0},
+        K.pending.drop(t, id)), now))) == False{} : Bool}:
+  drop_free.on(K.since(now, s0, K.lookup_wait()), a, i, pl, u, s0, t, id, now, {==}, ha, ih)
+
+def drop_free(+ps: List<&2, K.Pending>, +id: B.Bytes, +now: U32)
+    -> {Bool.and(free(ps, now), Bool.not(free(K.pending.drop(ps, id), now))) == False{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> +t:
+      match p:
+        case K.Pending{+i, +pl, +u, +s0}:
+          drop_free.at(i, pl, u, s0, t, id, now, K.pending.answers(K.Pending{i, pl, u, s0}, id), {==},
+            drop_free(t, id, now))
+
+def not_false_true(b: Bool, h: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Pc.ex_falso({False{} == True{} : Bool}, Pc.absurd_tf(h))
+
+def free_after_drop.not(+ps: List<&2, K.Pending>, +id: B.Bytes, +now: U32,
+    +h: {free(ps, now) == True{} : Bool})
+    -> {Bool.not(free(K.pending.drop(ps, id), now)) == False{} : Bool}:
+  %h : {Bool.and(_, Bool.not(free(K.pending.drop(ps, id), now))) == False{} : Bool}
+  drop_free(ps, id, now)
+
+def free_after_drop(+ps: List<&2, K.Pending>, +id: B.Bytes, +now: U32,
+    +h: {free(ps, now) == True{} : Bool})
+    -> {free(K.pending.drop(ps, id), now) == True{} : Bool}:
+  not_false_true(free(K.pending.drop(ps, id), now), free_after_drop.not(ps, id, now, h))
+
+def drop_all_free(ds: List<&2, K.Pending>, +ps: List<&2, K.Pending>, +now: U32,
+    +h: {free(ps, now) == True{} : Bool})
+    -> {free(K.drop.all(ds, ps), now) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      h
+    case +d <> t:
+      drop_all_free(t, K.pending.drop(ps, K.pending.idb(d)), now,
+        free_after_drop(ps, K.pending.idb(d), now, h))
+
+def none_of(m: Maybe<&2, K.Pending>, h: {is_none(m) == True{} : Bool})
+    -> {m == None{} : Maybe<&2, K.Pending>}:
   match m:
     case None{}:
       {==}
-    case Some{+pd}:
-      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), pd, K.no_ids())), 1n,
-          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), pd, K.no_ids())) :
-        {Nat.is_lt(_, 2n) == True{} : Bool}
-      {==}
+    case Some{p}:
+      Pc.ex_falso({Some{p} == None{} : Maybe<&2, K.Pending>}, Pc.absurd_ft(h))
 
-def Lk.plays_expiry_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, held, now):
-  expire_one.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays, held)
+def Lk.plays_nothing_overdue_after_tick(conf, n, up, clock, names, known, pending, plays, held,
+    now):
+  %Equal.sym(List<&2, K.Pending>,
+      K.book.pending(K.core.book(K.out.core(K.routine.expire(True{}, Lk.live.at(conf, n, up, clock,
+        names, known, pending, plays, held), now)))),
+      K.drop.all(K.split.due(K.split(pending, now)), K.split.kept(K.split(pending, now))),
+      Lk.plays_tick_keeps_the_rest(conf, n, up, clock, names, known, pending, plays, held, now)) :
+    {K.expired(_, now) == None{} : Maybe<&2, K.Pending>}
+  none_of(K.expired(K.drop.all(K.split.due(K.split(pending, now)),
+      K.split.kept(K.split(pending, now))), now),
+    drop_all_free(K.split.due(K.split(pending, now)), K.split.kept(K.split(pending, now)), now,
+      kept_free(pending, now)))
 
-def late_ok.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
-    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
-    +held: List<&2, K.Pending>,
-    ids: Model.Ids)
-    -> {Lk.late.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), ids) == Nil{} : List<&2, K.Action>}:
-  match m:
-    case None{}:
-      {==}
-    case Some{+pd}:
-      %Equal.sym(Maybe<&2, K.Pending>,
-          K.pending.find(K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))),
-            B.utf8(U32.show(K.pending.id(pd))),
-            K.pending.head(K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))),
-              B.utf8(U32.show(K.pending.id(pd))))), None{},
-          Lk.plays_gone_once_answered(pending, B.utf8(U32.show(K.pending.id(pd))))) :
-        {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known,
-          K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))), (plays + 1 : U32), held),
-          B.utf8(U32.show(K.pending.id(pd))), ids)) == Nil{} : List<&2, K.Action>}
-      {==}
+# A late answer: once a play's answers are dropped, later drops never bring one back.
+def nofind(+ps: List<&2, K.Pending>, +x: B.Bytes) -> Bool:
+  is_none(K.pending.find(ps, x, K.pending.head(ps, x)))
 
-def Lk.plays_late_answer_is_silent(conf, n, up, clock, names, known, pending, plays, held, now, ids):
-  late_ok.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays, held, ids)
+def drop_nofind.on(c: Bool, a: Bool, +p: K.Pending, +t: List<&2, K.Pending>, +x: B.Bytes,
+    +y: B.Bytes, +hc: {K.pending.answers(p, x) == c : Bool},
+    +ih: {Bool.and(nofind(t, x), Bool.not(nofind(K.pending.drop(t, y), x))) == False{} : Bool})
+    -> {Bool.and(is_none(K.pending.find(p <> t, x, c)),
+        Bool.not(nofind(K.pending.drop.if(a, p, K.pending.drop(t, y)), x))) == False{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      match a:
+        case True{}:
+          ih
+        case False{}:
+          %Equal.sym(Bool, K.pending.answers(p, x), False{}, hc) :
+            {Bool.and(nofind(t, x), Bool.not(is_none(K.pending.find(p <> K.pending.drop(t, y), x,
+              _)))) == False{} : Bool}
+          ih
+
+def drop_nofind(+ps: List<&2, K.Pending>, +x: B.Bytes, +y: B.Bytes)
+    -> {Bool.and(nofind(ps, x), Bool.not(nofind(K.pending.drop(ps, y), x))) == False{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +t:
+      drop_nofind.on(K.pending.answers(p, x), K.pending.answers(p, y), p, t, x, y, {==},
+        drop_nofind(t, x, y))
+
+def nofind_after_drop.not(+ps: List<&2, K.Pending>, +x: B.Bytes, +y: B.Bytes,
+    +h: {nofind(ps, x) == True{} : Bool})
+    -> {Bool.not(nofind(K.pending.drop(ps, y), x)) == False{} : Bool}:
+  %h : {Bool.and(_, Bool.not(nofind(K.pending.drop(ps, y), x))) == False{} : Bool}
+  drop_nofind(ps, x, y)
+
+def drop_all_nofind(ds: List<&2, K.Pending>, +ps: List<&2, K.Pending>, +x: B.Bytes,
+    +h: {nofind(ps, x) == True{} : Bool})
+    -> {nofind(K.drop.all(ds, ps), x) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      h
+    case +d <> t:
+      drop_all_nofind(t, K.pending.drop(ps, K.pending.idb(d)), x,
+        not_false_true(nofind(K.pending.drop(ps, K.pending.idb(d)), x),
+          nofind_after_drop.not(ps, x, K.pending.idb(d), h)))
+
+def gone_nofind(+ps: List<&2, K.Pending>, +id: B.Bytes)
+    -> {nofind(K.pending.drop(ps, id), id) == True{} : Bool}:
+  %Equal.sym(Maybe<&2, K.Pending>,
+      K.pending.find(K.pending.drop(ps, id), id, K.pending.head(K.pending.drop(ps, id), id)),
+      None{}, Lk.plays_gone_once_answered(ps, id)) :
+    {is_none(_) == True{} : Bool}
+  {==}
+
+def Lk.plays_late_answer_finds_nothing(before, d, after, ps):
+  match before:
+    case Nil{}:
+      none_of(Lk.late.find(d <> after, ps, K.pending.idb(d)),
+        drop_all_nofind(after, K.pending.drop(ps, K.pending.idb(d)), K.pending.idb(d),
+          gone_nofind(ps, K.pending.idb(d))))
+    case +b <> +rest:
+      Lk.plays_late_answer_finds_nothing(rest, d, after, K.pending.drop(ps, K.pending.idb(b)))
 
 def Lk.plays_final_report_goes_pending(conf, n, up, clock, names, known, pending, plays, held, ms, unix,
     item, secs, fully, player):

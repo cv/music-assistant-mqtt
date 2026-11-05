@@ -22,7 +22,7 @@ can't control a player (the core's ToMa action carries an `Api.Command`, and Api
 three).
 
 Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
-container (`deploy/`); 101 laws, all proven. About 1 MB of memory, 2 threads.
+container (`deploy/`); 103 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 

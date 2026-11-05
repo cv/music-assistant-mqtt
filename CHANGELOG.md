@@ -2,6 +2,14 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## Unreleased
+
+- A tick publishes every lookup that waited too long, each once, and keeps the rest: proven
+  (each due play once; what stays pending; afterwards nothing is overdue, a liveness law; a late
+  answer for an expired play finds nothing). It used to take them one at a time with fuel.
+- Chaos tests (`tools/chaos.py`) against a fake Music Assistant (`tools/fakema.py`): cuts,
+  stalls, fragmentation, garbage, a refused token, reconnect soaks.
+
 ## 0.2.0 (2026-11-05)
 
 - Plays survive a reconnect: those still waiting for their lookup when a session ends are looked

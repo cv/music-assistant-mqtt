@@ -793,38 +793,71 @@ def routine.report.acts(report: Bool) -> List<&2, Action>:
     case False{}:
       Nil{}
 
-# Routine work: a ping when the broker heard nothing from us for ping_every, the health report
-# when due, a lookup that waited too long published without ids.
-# Lookups are only made while live, so only then can one expire.
-# A lookup that waited too long: its play published without ids, under its own id bytes (a late
-# answer then finds nothing).
-def expire.on(m: Maybe<&2, Pending>, +c: Core) -> Out:
-  match m:
-    case None{}:
-      Out{c, Nil{}}
-    case Some{+pd}:
-      answered.take(core.book(c), c, pd, B.utf8(U32.show(pending.id(pd))), no_ids())
+# The pending plays split by whether their lookup waited too long.
+type Split is Data:
+  Split{due: List<&2, Pending>, kept: List<&2, Pending>}
 
-# Every lookup that waited too long, one after the other (fuel: one more than the plays pending;
-# each one taken out leaves fewer).
-def expire.all(fuel: Nat, m: Maybe<&2, Pending>, +c: Core, +now: U32) -> Out:
-  match fuel:
-    case 0n:
+def split.due(s: Split) -> List<&2, Pending>:
+  match s:
+    case Split{d, _}:
+      d
+
+def split.kept(s: Split) -> List<&2, Pending>:
+  match s:
+    case Split{_, k}:
+      k
+
+def split.if(due: Bool, p: Pending, +s: Split) -> Split:
+  match due:
+    case True{}:
+      Split{p <> split.due(s), split.kept(s)}
+    case False{}:
+      Split{split.due(s), p <> split.kept(s)}
+
+def split(ps: List<&2, Pending>, +now: U32) -> Split:
+  match ps:
+    case Nil{}:
+      Split{Nil{}, Nil{}}
+    case +p <> t:
+      match p:
+        case Pending{_, _, _, +since0}:
+          split.if(since(now, since0, lookup_wait()), p, split(t, now))
+
+# The id bytes a reply to this play's lookup carries.
+def pending.idb(+p: Pending) -> B.Bytes:
+  B.utf8(U32.show(pending.id(p)))
+
+# The plays without any answering these plays' ids.
+def drop.all(ds: List<&2, Pending>, +ps: List<&2, Pending>) -> List<&2, Pending>:
+  match ds:
+    case Nil{}:
+      ps
+    case +d <> t:
+      drop.all(t, pending.drop(ps, pending.idb(d)))
+
+# Each of these plays published, without ids, once.
+def expire.dues(ds: List<&2, Pending>, +c: Core) -> Out:
+  match ds:
+    case Nil{}:
       Out{c, Nil{}}
-    case 1n+f:
-      match m:
-        case None{}:
-          Out{c, Nil{}}
-        case Some{+pd}:
-          +o = expire.on(Some{pd}, c)
-          +rest = expire.all(f, expired(book.pending(core.book(out.core(o))), now), out.core(o), now)
-          Out{out.core(rest), List.append(&2, Action, out.actions(o), out.actions(rest))}
+    case +d <> t:
+      +o = publish.play(core.book(c), c, d, no_ids())
+      +rest = expire.dues(t, out.core(o))
+      Out{out.core(rest), List.append(&2, Action, out.actions(o), out.actions(rest))}
+
+# Every lookup that waited too long: its play published without ids, and out of the book (with
+# any other answering its id), so a late answer finds nothing and nothing overdue is left.
+def expire.book(b: Book, +c: Core, +now: U32) -> Out:
+  match b:
+    case Book{names, known, +pending, plays, held}:
+      +sp = split(pending, now)
+      expire.dues(split.due(sp),
+        with.book(c, Book{names, known, drop.all(split.due(sp), split.kept(sp)), plays, held}))
 
 def routine.expire(live: Bool, +c: Core, +now: U32) -> Out:
   match live:
     case True{}:
-      +ps = book.pending(core.book(c))
-      expire.all(1n+List.length(&2, Pending, ps), expired(ps, now), c, now)
+      expire.book(core.book(c), c, now)
     case False{}:
       Out{c, Nil{}}
 
