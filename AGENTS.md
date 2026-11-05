@@ -22,7 +22,7 @@ can't control a player (the core's ToMa action carries an `Api.Command`, and Api
 three).
 
 Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
-container (`deploy/`); 83 laws, all proven. About 1 MB of memory, 2 threads.
+container (`deploy/`); 92 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 
@@ -138,6 +138,24 @@ client_id <id>            # (music-assistant-mqtt)
 plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 ```
 
+## What the laws guarantee (for every input)
+
+- Privacy: the JSON scanner hands out only values at wanted paths (a guard in `J.finished`, so it
+  holds whatever the state machine does); every message the link hears, and everything the model
+  reads, is at one of Api's wanted paths: no device details, MAC or IP addresses, artwork or
+  metadata can reach a payload.
+- Read-only: the core's only command action carries an `Api.Command` (login, player list,
+  lookup).
+- Order: until the session is live (the broker accepted, Music Assistant said hello and took the
+  token), nothing is published but the offline status, whatever either side sends; events count
+  only from the player list on.
+- Names: no two players share a topic level; a learned player is never renamed; one with no free
+  name gets none and is never published.
+- An ended session does nothing more; a lost link ends the session (offline first when the broker
+  still listens); Music Assistant's pings get their pongs; the reconnect waits stay in 1..60 s.
+- The config's summary never shows the token or the password.
+- The decoders read the same however the socket splits the bytes (WebSocket, JSON, MQTT).
+
 ## Testing
 
 - `bend PROOF.bend`: every law (about 16 s).
@@ -187,6 +205,8 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 
 ## Open items
 
+- Not proven yet: each final play is published exactly once; the scanner's bounds (captures,
+  text, depth) for every input.
 - A fake Music Assistant and chaos tests (cuts, stalls, garbage, restarts), and a random-session
   simulator for the core, as the I/O shell isn't proven.
 - `player_removed`: mark the player unavailable.

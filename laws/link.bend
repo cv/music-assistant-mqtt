@@ -64,3 +64,34 @@ law link_feed_split:
   {L.run(B.cat(xs, ys), ws, l, hs)
     == L.run(ys, ws, L.fed.link(L.run(xs, ws, l, hs)), L.fed.heard(L.run(xs, ws, l, hs)))
     : L.Fed}
+
+# Privacy
+# -------
+
+def heard.is_ok(+ws: J.Wants, h: L.Heard) -> Bool:
+  match h:
+    case L.Message{caps}:
+      J.all.ok(ws, caps)
+    case _:
+      True{}
+
+def heard.maybe_ok(+ws: J.Wants, m: Maybe<&2, L.Heard>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{h}:
+      heard.is_ok(ws, h)
+
+def heard.ok(+ws: J.Wants, hs: List<&2, L.Heard>) -> Bool:
+  match hs:
+    case Nil{}:
+      True{}
+    case h <> t:
+      Bool.and(heard.is_ok(ws, h), heard.ok(ws, t))
+
+# For every link and every run of bytes: every message heard holds only values at wanted paths.
+law link_hears_only_wanted:
+  for +ws: J.Wants
+  for +l: L.Link
+  for +bs: B.Bytes
+  {heard.ok(ws, L.fed.heard(L.feed(ws, l, bs))) == True{} : Bool}

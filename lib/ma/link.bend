@@ -52,9 +52,9 @@ def on_out(+ws: J.Wants, dec: W.Dec, scan: J.Scan, o: W.Out) -> Step:
     case W.Byte{b}:
       Step{Link{dec, J.step(ws, scan, b)}, None{}}
     case W.Last{b}:
-      Step{Link{dec, J.start()}, Some{message(J.finished(J.step(ws, scan, b)))}}
+      Step{Link{dec, J.start()}, Some{message(J.finished(ws, J.step(ws, scan, b)))}}
     case W.End{}:
-      Step{Link{dec, J.start()}, Some{message(J.finished(scan))}}
+      Step{Link{dec, J.start()}, Some{message(J.finished(ws, scan))}}
     case W.Ping{p}:
       Step{Link{dec, scan}, Some{Pinged{p}}}
     case W.Closed{}:

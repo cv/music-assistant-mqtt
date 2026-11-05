@@ -40,3 +40,9 @@ def Lj.json_broken_absorbs(bs, ws, why):
       {==}
     case _ <> t:
       Lj.json_broken_absorbs(t, ws, why)
+
+def Lj.json_finished_only_wanted(ws, s):
+  Pc.finished_ok(ws, s)
+
+def Lj.json_scan_only_wanted(ws, bs):
+  Pc.finished_ok(ws, J.run(bs, ws, J.start()))

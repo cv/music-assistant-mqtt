@@ -107,16 +107,6 @@ def start() -> Scan:
 def broken(why: String) -> Scan:
   Scan{Broken{why}, Nil{}, 0, Nil{}, 0}
 
-# The values a whole document kept, in order; None when it broke or isn't whole.
-def finished(s: Scan) -> Maybe<&2, List<&2, Cap>>:
-  match s:
-    case Scan{mode, _, _, caps, _}:
-      match mode:
-        case Whole{}:
-          Some{List.reverse(&2, Cap, caps)}
-        case _:
-          None{}
-
 # Wanted paths
 # ------------
 
@@ -194,10 +184,63 @@ def wanted.loop(+ws: Wants, +s: List<&2, Seg>, hit: Bool) -> Bool:
         case False{}:
           wanted.loop(rest, s, first.hit(rest, s))
 
+# Whether a value at this path is kept.
+def wanted.at(+ws: Wants, +s: List<&2, Seg>) -> Bool:
+  wanted.loop(ws, s, first.hit(ws, s))
+
 # Whether a value at this stack is kept.
 def wanted(+ws: Wants, +stack: List<&2, Frame>) -> Bool:
-  +s = path(stack)
-  wanted.loop(ws, s, first.hit(ws, s))
+  wanted.at(ws, path(stack))
+
+# The guard
+# ---------
+# What a document hands out passes this check once more, whatever the state machine did: only
+# values at wanted paths leave the scanner (the laws prove it for every input).
+
+def cap.path(c: Cap) -> List<&2, Seg>:
+  match c:
+    case Cap{p, _}:
+      p
+
+def guard.if(ok: Bool, c: Cap, rest: List<&2, Cap>) -> List<&2, Cap>:
+  match ok:
+    case True{}:
+      c <> rest
+    case False{}:
+      rest
+
+# The captures at wanted paths, in order.
+def guard(+ws: Wants, caps: List<&2, Cap>) -> List<&2, Cap>:
+  match caps:
+    case Nil{}:
+      Nil{}
+    case +c <> t:
+      guard.if(wanted.at(ws, cap.path(c)), c, guard(ws, t))
+
+# Whether every capture is at a wanted path.
+def all.ok(+ws: Wants, caps: List<&2, Cap>) -> Bool:
+  match caps:
+    case Nil{}:
+      True{}
+    case +c <> t:
+      Bool.and(wanted.at(ws, cap.path(c)), all.ok(ws, t))
+
+def caps.ok(+ws: Wants, m: Maybe<&2, List<&2, Cap>>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{caps}:
+      all.ok(ws, caps)
+
+# The values a whole document kept, in order; None when it broke or isn't whole.
+def finished(+ws: Wants, s: Scan) -> Maybe<&2, List<&2, Cap>>:
+  match s:
+    case Scan{mode, _, _, caps, _}:
+      match mode:
+        case Whole{}:
+          Some{guard(ws, List.reverse(&2, Cap, caps))}
+        case _:
+          None{}
 
 # Values and containers
 # ---------------------
@@ -730,7 +773,7 @@ def run(bs: B.Bytes, +ws: Wants, s: Scan) -> Scan:
 
 # The values a whole document keeps, in order (None: it broke, or isn't whole).
 def scan(+ws: Wants, bs: B.Bytes) -> Maybe<&2, List<&2, Cap>>:
-  finished(run(bs, ws, start()))
+  finished(ws, run(bs, ws, start()))
 
 # The writer
 # ==========

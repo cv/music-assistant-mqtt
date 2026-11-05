@@ -1,5 +1,6 @@
 import Base
 import ../lib/wire/bytes.bend as B
+import ../lib/wire/json.bend as J
 import ../lib/ma/api.bend as Api
 import ../lib/ma/model.bend as Model
 # Laws of Music Assistant's API (lib/ma): the commands' bytes, and what real messages read as.
@@ -195,3 +196,9 @@ law ma_players_drop_device_details:
   {(Model.holds(Model.read(sample.players()), u("10.0.0.20")),
     Model.holds(Model.read(sample.players()), u("00:00:00:00:00:01")))
     == (False{}, False{}) : Bool & Bool}
+
+# For every message: the model reads only values at Api's wanted paths (no device details, MAC or
+# IP addresses, artwork, metadata), whatever Music Assistant sends.
+law model_reads_only_wanted:
+  for +bs: B.Bytes
+  {J.all.ok(Api.wants(), Model.read(bs)) == True{} : Bool}

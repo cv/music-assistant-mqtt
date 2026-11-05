@@ -1,5 +1,6 @@
 import Base
 import ../lib/wire/bytes.bend as B
+import ../lib/wire/json.bend as J
 import ../laws/wire.bend as Lw
 
 # Lemmas and proofs that several areas use (the other proof files import this
@@ -334,3 +335,58 @@ def beq_loop_sound(
 # beq_loop_sound from the first heads.
 def Lw.beq_sound(a, b, h):
   beq_loop_sound(a, b, B.heads(a, b), {==}, h)
+
+# The scanner's guard
+# -------------------
+
+def guard_ok.if(b: Bool, +ws: J.Wants, +c: J.Cap, +rest: List<&2, J.Cap>,
+    h: {J.wanted.at(ws, J.cap.path(c)) == b : Bool}, +ih: {J.all.ok(ws, rest) == True{} : Bool})
+    -> {J.all.ok(ws, J.guard.if(b, c, rest)) == True{} : Bool}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, J.wanted.at(ws, J.cap.path(c)), True{}, h) :
+        {Bool.and(_, J.all.ok(ws, rest)) == True{} : Bool}
+      ih
+    case False{}:
+      ih
+
+# What the guard lets through is all at wanted paths (induction on the captures).
+def guard_ok(+ws: J.Wants, caps: List<&2, J.Cap>)
+    -> {J.all.ok(ws, J.guard(ws, caps)) == True{} : Bool}:
+  match caps:
+    case Nil{}:
+      {==}
+    case +c <> +t:
+      guard_ok.if(J.wanted.at(ws, J.cap.path(c)), ws, c, J.guard(ws, t), {==}, guard_ok(ws, t))
+
+# For every scanner state: what a document hands out is all at wanted paths.
+def finished_ok(+ws: J.Wants, s: J.Scan) -> {J.caps.ok(ws, J.finished(ws, s)) == True{} : Bool}:
+  match s:
+    case J.Scan{mode, st, d, caps, n}:
+      match mode:
+        case J.Value{}:
+          {==}
+        case J.ArrStart{}:
+          {==}
+        case J.KeyOrEnd{}:
+          {==}
+        case J.KeyNext{}:
+          {==}
+        case J.Colon{}:
+          {==}
+        case J.After{}:
+          {==}
+        case J.InString{t}:
+          {==}
+        case J.InEscape{t}:
+          {==}
+        case J.InHex{t, dg, code}:
+          {==}
+        case J.InNumber{acc, k}:
+          {==}
+        case J.InWord{rest, v}:
+          {==}
+        case J.Whole{}:
+          guard_ok(ws, List.reverse(&2, J.Cap, caps))
+        case J.Broken{why}:
+          {==}

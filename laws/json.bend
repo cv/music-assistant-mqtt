@@ -92,4 +92,20 @@ law json_broken_absorbs:
   for bs: B.Bytes
   for +ws: J.Wants
   for +why: String
-  {J.finished(J.run(bs, ws, J.broken(why))) == None{} : Maybe<&2, List<&2, J.Cap>>}
+  {J.finished(ws, J.run(bs, ws, J.broken(why))) == None{} : Maybe<&2, List<&2, J.Cap>>}
+
+# Privacy
+# -------
+
+# For every scanner state and every set of wanted paths: whatever a document hands out is at a
+# wanted path (J.finished's guard), so no other value ever leaves the scanner.
+law json_finished_only_wanted:
+  for +ws: J.Wants
+  for s: J.Scan
+  {J.caps.ok(ws, J.finished(ws, s)) == True{} : Bool}
+
+# For every document.
+law json_scan_only_wanted:
+  for +ws: J.Wants
+  for bs: B.Bytes
+  {J.caps.ok(ws, J.scan(ws, bs)) == True{} : Bool}
