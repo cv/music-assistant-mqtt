@@ -28,7 +28,8 @@ lookups, never a command that controls a player.
 ## Running it
 
 It runs as a container beside Music Assistant (host network): `ghcr.io/cv/music-assistant-mqtt`, for
-linux/amd64 and linux/arm64, one static binary in an otherwise empty image (under 1 MB). Make a long-lived token in Music
+linux/amd64 and linux/arm64, one static binary in an otherwise empty image (under 1 MB). Each
+[release](https://github.com/cv/music-assistant-mqtt/releases) also has the static binaries. Make a long-lived token in Music
 Assistant's UI and an MQTT login that may write `music/#`, then write the config (keep it
 `0600`):
 

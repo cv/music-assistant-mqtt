@@ -6,13 +6,15 @@ on:
       - "v*"
 
 # The image (Dockerfile) for linux/amd64 and linux/arm64, as ghcr.io/<owner>/music-assistant-mqtt
-# :<version> and :<major>.<minor>. The laws must check and the tag must be mam.bend's version().
-# The build stage runs on the runner and cross-compiles (zig), so no emulation is needed.
+# :<version> and :<major>.<minor>, then a GitHub release with the static binaries (the
+# Dockerfile's binary stage), their SHA256SUMS and the version's CHANGELOG.md section as notes.
+# The laws must check and the tag must be mam.bend's version(). The build stage runs on the
+# runner and cross-compiles (zig), so no emulation is needed.
 jobs:
   image:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Checkout
@@ -22,6 +24,8 @@ jobs:
         run: |
           v=$(grep -A1 '^def version()' mam.bend | tail -1 | tr -d ' "')
           [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, mam.bend says $v" >&2; exit 1; }
+          awk -v v="$v" '/^## / { p = ($2 == v) } p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "CHANGELOG.md has no section for $v" >&2; exit 1; }
 
       - name: Bend
         run: |
@@ -66,3 +70,20 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Binaries
+        run: |
+          docker buildx build --platform linux/amd64,linux/arm64 --target binary \
+            --output type=local,dest=dist .
+          mkdir release
+          for a in amd64 arm64; do
+            cp "dist/linux_$a/mam" "release/music-assistant-mqtt-linux-$a"
+          done
+          (cd release && sha256sum * > SHA256SUMS)
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md
