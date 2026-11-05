@@ -52,6 +52,49 @@ Building it yourself needs [Bend](https://github.com/HigherOrderCO/bend) and Doc
 `bend mam.bend -o out/mam.c && docker build -t music-assistant-mqtt .` (the C is portable; zig
 cross-compiles it, statically, for the target).
 
+## A queue card for Home Assistant
+
+[`ha/music-queue-card.js`](ha/music-queue-card.js) shows a player's last plays, its media control
+and its next items, from `music/<player>/queue`. A tap on a previous play plays it again; a tap on a
+next item jumps straight to it (nothing in between is played).
+
+1. An MQTT sensor per player, with the window as its attributes:
+
+   ```yaml
+   mqtt:
+     sensor:
+       - name: "Living Room queue"
+         state_topic: "music/living_room/queue"
+         value_template: "{{ value_json.index }}"
+         json_attributes_topic: "music/living_room/queue"
+   ```
+
+2. A REST command for the jump (a Music Assistant token in `secrets.yaml` as `"Bearer <token>"`):
+
+   ```yaml
+   rest_command:
+     ma_play_queue_item:
+       url: "http://127.0.0.1:8095/api"
+       method: post
+       headers:
+         Authorization: !secret ma_queue_token
+       content_type: "application/json"
+       payload: >-
+         {"command": "player_queues/play_index",
+          "args": {"queue_id": {{ queue | tojson }}, "index": {{ item | tojson }}}}
+   ```
+
+3. The card as a dashboard resource (`/local/music-queue-card.js`, from `config/www/`), then:
+
+   ```yaml
+   type: custom:music-queue-card
+   entity: media_player.living_room        # shown in the middle
+   player: media_player.ma_living_room     # Music Assistant's player, to replay (default: entity)
+   queue: sensor.living_room_queue
+   previous: 4
+   next: 5
+   ```
+
 ## How it is made
 
 It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 110. The wire
