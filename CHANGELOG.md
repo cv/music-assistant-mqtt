@@ -2,6 +2,14 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## 0.5.0 (2026-11-05)
+
+- Queue windows: `<prefix>/<player>/queue` (retained) holds each player's last 5 plays, from any
+  source, with what was heard, and the next 5 items of its Music Assistant queue, with the ids to
+  play one. They are asked for only when a queue's place or items change (`player_queues/all` once
+  live, then `player_queues/items`: reads). A layer around the core (`top.bend`) keeps the core
+  and its laws unchanged; the windows have their own (a pinned session, bounds, no needless asks).
+
 ## 0.4.0 (2026-11-05)
 
 - The JSON scanner's limits are proven for every input: at most 64 open containers, 256 kept

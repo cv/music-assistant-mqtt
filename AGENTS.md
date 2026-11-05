@@ -22,7 +22,7 @@ can't control a player (the core's ToMa action carries an `Api.Command`, and Api
 three).
 
 Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
-container (`deploy/`); 107 laws, all proven. About 1 MB of memory, 2 threads.
+container (`deploy/`); 110 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 
@@ -68,6 +68,10 @@ lib/
   bridge/   the decisions (pure, covered by laws)
     conf.bend    the config file: every problem numbered by line, secrets never echoed
     topics.bend  topic names, player slugs (unique, no + # /), the payloads
+    deck.bend    the queue windows: each player's last plays and its queue's next items, the
+                 requests they need (reads), the JSON
+    top.bend     the bridge's step: the core's, and the deck fed the same inputs (its own message
+                 ids from 2^31; windows published only while live)
     core.bend    one step: state + event → state + actions (sessions, login, lookups, publishes,
                  heartbeats, the reconnect backoff)
   app/      I/O
@@ -118,6 +122,12 @@ runs sessions in a loop:
   "available", "source", "synced_to" (the player it is grouped under), "volume", "title",
   "artist", "album", "uri", "duration"}`; device details (MAC, IP) are never kept. The elapsed
   time is left out, so it changes only when something real does.
+- `<prefix>/<player>/queue` (retained JSON): `{"previous": [last 5 plays, oldest first: "artist",
+  "title", "duration", "seconds", "uri"], "next": [the queue's next 5 items: "id" (to play it:
+  player_queues/play_index takes it), "name" ("Artist - Title"), "duration", "uri"], "queue", "index"}`.
+  Plays come from every source; the next items from `player_queues/items` after the current index,
+  asked again only when the queue's place (index or length) changes or its items do. The last plays
+  survive a reconnect (in memory), not a restart.
 - `<prefix>/played` (JSON, not retained): `{"at" (Unix s), "player", "player_id", "uri", "name",
   "artist", "album", "duration", "seconds_played", "fully_played", "ids" {"apple_music": …,
   "spotify": …}, "isrc"}`; `at` is the wall clock when the final report came. Music Assistant calls a track fully played at 90 % or within 10 s of
@@ -150,7 +160,12 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
   holds whatever the state machine does); every message the link hears, and everything the model
   reads, is at one of Api's wanted paths: no device details, MAC or IP addresses, artwork or
   metadata can reach a payload.
-- Read-only: the core's only command action carries an `Api.Command` (login, player list,
+- Read-only: every command (the core's and the deck's) is an `Api.Command`, and Api has only reads
+  (login, player list, lookup, queue list, queue items). Music Assistant's long-lived tokens expire
+  after a year: renew the bridge's (and Home Assistant's, for queue taps) by 2027-11.
+- Queue windows: a player's last plays are at most 5; a queue_updated at the place a queue already
+  has asks nothing; the deck's requests never share an id with the core's.
+- Read-only (core): the core's only command action carries an `Api.Command` (login, player list,
   lookup).
 - Order: until the session is live (the broker accepted, Music Assistant said hello and took the
   token), nothing is published but the offline status, whatever either side sends; events count

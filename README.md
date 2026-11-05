@@ -11,6 +11,7 @@ and publishes:
 | `music/status` | `online` / `offline` (also the last will) | yes |
 | `music/<player>/state` | what the player is doing: name, state, availability, source, group, volume, title, artist, album, uri, duration | yes |
 | `music/played` | a finished play, skips included: when, where, what, how long it was heard, whether fully, its catalog ids (Apple Music, Spotify) and ISRC | no |
+| `music/<player>/queue` | the player's window: its last 5 plays (wherever they came from: artist, title, length, seconds heard, uri) and the next 5 items of its queue (id, "Artist - Title", length, uri), with the queue's id and position | yes |
 | `music/$bridge/…` | its own health: version, uptime, sessions, why the last one ended, plays, players, memory | yes |
 
 Every play is also appended to a JSON-lines file, the durable history:
@@ -53,7 +54,7 @@ cross-compiles it, statically, for the target).
 
 ## How it is made
 
-It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 107. The wire
+It's written in Bend, with laws its checker proves: `bend PROOF.bend` checks all 110. The wire
 formats are pinned to bytes real peers sent or accepted (RFC 6455's examples, Music Assistant's
 messages). Others hold for every input:
 - only values at the paths it declares ever leave the JSON scanner, so a device's details, MAC or
