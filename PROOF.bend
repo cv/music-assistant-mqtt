@@ -6,3 +6,4 @@ import ./proofs/ws.bend as PWs
 import ./proofs/json.bend as PJson
 import ./proofs/ma.bend as PMa
 import ./proofs/topics.bend as PTopics
+import ./proofs/link.bend as PLink
