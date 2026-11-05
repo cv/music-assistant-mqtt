@@ -15,7 +15,7 @@ import ./lib/app/main.bend as App
 # between them (lib/app/main.bend runs one).
 
 def version() -> String:
-  "0.2.0"
+  "0.3.0"
 
 def max_config() -> U32:
   65536
