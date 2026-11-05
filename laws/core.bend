@@ -5,6 +5,7 @@ import ../lib/ma/api.bend as Api
 import ../lib/ma/model.bend as Model
 import ../lib/ma/link.bend as L
 import ../lib/bridge/conf.bend as C
+import ../lib/bridge/topics.bend as T
 import ../lib/bridge/core.bend as K
 # Laws of the bridge's decisions (lib/bridge/core.bend).
 
@@ -261,3 +262,149 @@ law core_quiet_logging_in:
   for +ev: K.Input
   {data.in(K.out.actions(K.step(at(conf, K.LoggingIn{}, n, up, clock, book), t, ev))) == False{}
     : Bool}
+
+# Plays: each final report is published once
+# -------------------------------------------
+# A play is the only publish that isn't retained. A final report goes pending with one lookup; the
+# lookup's answer (or refusal, or its expiry) publishes it once and takes it out of the book, so a
+# second answer, or a late one after the expiry, finds nothing.
+
+def played.is(a: K.Action) -> Bool:
+  match a:
+    case K.ToMq{p}:
+      match p:
+        case M.Publish{_, _, retain, _, _, _}:
+          Bool.not(retain)
+        case _:
+          False{}
+    case _:
+      False{}
+
+def played.add(one: Bool, n: Nat) -> Nat:
+  match one:
+    case True{}:
+      1n+n
+    case False{}:
+      n
+
+# How many plays the actions publish.
+def played.count(as: List<&2, K.Action>) -> Nat:
+  match as:
+    case Nil{}:
+      0n
+    case a <> t:
+      played.add(played.is(a), played.count(t))
+
+def live.at(conf: C.Conf, +n: U32, up: Bool, clock: K.Clock, names: T.Names,
+    known: List<&2, K.Known>, pending: List<&2, K.Pending>, +plays: U32) -> K.Core:
+  K.Core{conf, K.Session{K.Live{}, n, up}, clock, K.Book{names, known, pending, plays}}
+
+# For every pending list and id: once the plays answering an id are dropped, none answers it.
+law plays_gone_once_answered:
+  for +ps: List<&2, K.Pending>
+  for +id: B.Bytes
+  {K.pending.find(K.pending.drop(ps, id), id, K.pending.head(K.pending.drop(ps, id), id))
+    == None{} : Maybe<&2, K.Pending>}
+
+# For every book and answer: at most one play is published.
+law plays_answer_publishes_at_most_one:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +pending: List<&2, K.Pending>
+  for +plays: U32
+  for +id: B.Bytes
+  for ids: Model.Ids
+  {Nat.is_lt(played.count(K.out.actions(
+      K.answered(live.at(conf, n, up, clock, names, known, pending, plays), id, ids))), 2n)
+    == True{} : Bool}
+
+# For every book and id: a second answer under the same id publishes nothing.
+law plays_answered_twice_is_silent:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +pending: List<&2, K.Pending>
+  for +plays: U32
+  for +id: B.Bytes
+  for ids1: Model.Ids
+  for ids2: Model.Ids
+  {K.out.actions(K.answered(K.out.core(
+      K.answered(live.at(conf, n, up, clock, names, known, pending, plays), id, ids1)), id, ids2))
+    == Nil{} : List<&2, K.Action>}
+
+# For every book and time: an expiry publishes at most one play.
+law plays_expiry_publishes_at_most_one:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +pending: List<&2, K.Pending>
+  for +plays: U32
+  for +now: U32
+  {Nat.is_lt(played.count(K.out.actions(K.routine.expire(True{},
+      live.at(conf, n, up, clock, names, known, pending, plays), now))), 2n) == True{} : Bool}
+
+# The answer that comes after its play expired (its own id bytes): nothing, when one expired.
+def late.on(m: Maybe<&2, K.Pending>, +c: K.Core, ids: Model.Ids) -> List<&2, K.Action>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{+pd}:
+      K.out.actions(K.answered(K.out.core(K.expire.on(Some{pd}, c)),
+        B.utf8(U32.show(K.pending.id(pd))), ids))
+
+law plays_late_answer_is_silent:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +pending: List<&2, K.Pending>
+  for +plays: U32
+  for +now: U32
+  for ids: Model.Ids
+  {late.on(K.expired(pending, now), live.at(conf, n, up, clock, names, known, pending, plays), ids)
+    == Nil{} : List<&2, K.Action>}
+
+# For every live core and final report: it goes pending under the next id, with one lookup.
+law plays_final_report_goes_pending:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +names: T.Names
+  for +known: List<&2, K.Known>
+  for +pending: List<&2, K.Pending>
+  for +plays: U32
+  for +ms: U32
+  for +unix: U32
+  for +item: Model.Media
+  for +secs: U32
+  for +fully: Bool
+  for +player: B.Bytes
+  {K.played(live.at(conf, n, up, clock, names, known, pending, plays), K.Time{ms, unix},
+      Model.Play{item, secs, fully, True{}, player})
+    == K.Out{live.at(conf, (n + 1 : U32), up, clock, names, known,
+          K.Pending{n, Model.Play{item, secs, fully, True{}, player}, unix, ms} <> pending, plays),
+        [K.ToMa{n, Api.Lookup{K.play.uri(Model.Play{item, secs, fully, True{}, player})}}]}
+    : K.Out}
+
+# For every core and report still playing: nothing.
+law plays_progress_report_does_nothing:
+  for +c: K.Core
+  for t: K.Time
+  for item: Model.Media
+  for secs: U32
+  for fully: Bool
+  for player: B.Bytes
+  {K.played(c, t, Model.Play{item, secs, fully, False{}, player}) == K.Out{c, Nil{}} : K.Out}

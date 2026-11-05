@@ -1,9 +1,11 @@
 import Base
 import ../lib/wire/bytes.bend as B
 import ../lib/wire/mqtt.bend as M
+import ../lib/ma/api.bend as Api
 import ../lib/ma/model.bend as Model
 import ../lib/ma/link.bend as L
 import ../lib/bridge/conf.bend as C
+import ../lib/bridge/topics.bend as T
 import ../lib/bridge/core.bend as K
 import ../laws/core.bend as Lk
 # Proofs of laws/core.bend: the session computes; the others compute once the phase is known
@@ -357,3 +359,140 @@ def Lk.core_quiet_logging_in(conf, n, up, clock, book, t, ev):
                 K.Time{ms, u}, ev), ms)) :
             {Lk.data.in(_) == False{} : Bool}
           event_quiet_logging_in(conf, n, up, a, b, cc, d, book, ms, u, ev)
+
+# Plays: each final report is published once
+# -------------------------------------------
+# gone: by induction on the pending list (an answering play is dropped; past one that doesn't,
+# the lookup moves on). One play's actions hold one publish that isn't retained, whatever the
+# plays file. A second answer, or a late one, looks in the dropped list: gone again.
+
+def gone.if(b: Bool, +p: K.Pending, +t: List<&2, K.Pending>, +id: B.Bytes,
+    h: {K.pending.answers(p, id) == b : Bool},
+    +ih: {K.pending.find(K.pending.drop(t, id), id, K.pending.head(K.pending.drop(t, id), id))
+      == None{} : Maybe<&2, K.Pending>})
+    -> {K.pending.find(K.pending.drop.if(b, p, K.pending.drop(t, id)), id,
+          K.pending.head(K.pending.drop.if(b, p, K.pending.drop(t, id)), id))
+        == None{} : Maybe<&2, K.Pending>}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      %Equal.sym(Bool, K.pending.answers(p, id), False{}, h) :
+        {K.pending.find(p <> K.pending.drop(t, id), id, _) == None{} : Maybe<&2, K.Pending>}
+      ih
+
+def Lk.plays_gone_once_answered(ps, id):
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +t:
+      gone.if(K.pending.answers(p, id), p, t, id, {==}, Lk.plays_gone_once_answered(t, id))
+
+def app_zero(b: Bool, +line: B.Bytes) -> {Lk.played.count(K.append.if(b, line)) == 0n : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def acts_one(+names: T.Names, +c: K.Core, pd: K.Pending, ids: Model.Ids)
+    -> {Lk.played.count(K.publish.play.acts(names, c, pd, ids)) == 1n : Nat}:
+  match pd:
+    case K.Pending{i, +play, +unix, since0}:
+      %Equal.sym(Nat,
+          Lk.played.count(K.append.if(Bool.not(C.blank(C.out.plays(C.conf.out(K.core.conf(c))))),
+            T.played(unix, K.level.on(T.level.of(names, K.play.player(play)), K.play.player(play)),
+              play, ids))), 0n,
+          app_zero(Bool.not(C.blank(C.out.plays(C.conf.out(K.core.conf(c))))),
+            T.played(unix, K.level.on(T.level.of(names, K.play.player(play)), K.play.player(play)),
+              play, ids))) :
+        {Lk.played.add(True{}, _) == 1n : Nat}
+      {==}
+
+def answer_one.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
+    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    +id: B.Bytes, ids: Model.Ids)
+    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.answered.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays), id, ids))), 2n)
+        == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{pd}:
+      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, ids)), 1n,
+          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, ids)) :
+        {Nat.is_lt(_, 2n) == True{} : Bool}
+      {==}
+
+def Lk.plays_answer_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, id, ids):
+  answer_one.on(K.pending.find(pending, id, K.pending.head(pending, id)), conf, n, up, clock, names,
+    known, pending, plays, id, ids)
+
+def twice.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
+    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    +id: B.Bytes, ids1: Model.Ids, ids2: Model.Ids,
+    +h: {K.pending.find(pending, id, K.pending.head(pending, id)) == m : Maybe<&2, K.Pending>})
+    -> {K.out.actions(K.answered(K.out.core(K.answered.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays), id, ids1)), id, ids2))
+        == Nil{} : List<&2, K.Action>}:
+  match m:
+    case None{}:
+      %Equal.sym(Maybe<&2, K.Pending>, K.pending.find(pending, id, K.pending.head(pending, id)),
+          None{}, h) :
+        {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known, pending, plays), id, ids2)) == Nil{} : List<&2, K.Action>}
+      {==}
+    case Some{pd}:
+      %Equal.sym(Maybe<&2, K.Pending>,
+          K.pending.find(K.pending.drop(pending, id), id,
+            K.pending.head(K.pending.drop(pending, id), id)), None{},
+          Lk.plays_gone_once_answered(pending, id)) :
+        {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known,
+          K.pending.drop(pending, id), (plays + 1 : U32)), id, ids2)) == Nil{} : List<&2, K.Action>}
+      {==}
+
+def Lk.plays_answered_twice_is_silent(conf, n, up, clock, names, known, pending, plays, id, ids1,
+    ids2):
+  twice.on(K.pending.find(pending, id, K.pending.head(pending, id)), conf, n, up, clock, names,
+    known, pending, plays, id, ids1, ids2, {==})
+
+def expire_one.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
+    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32)
+    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.expire.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays)))), 2n) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+pd}:
+      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, K.no_ids())), 1n,
+          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, K.no_ids())) :
+        {Nat.is_lt(_, 2n) == True{} : Bool}
+      {==}
+
+def Lk.plays_expiry_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, now):
+  expire_one.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays)
+
+def late_ok.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
+    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    ids: Model.Ids)
+    -> {Lk.late.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays), ids) == Nil{} : List<&2, K.Action>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+pd}:
+      %Equal.sym(Maybe<&2, K.Pending>,
+          K.pending.find(K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))),
+            B.utf8(U32.show(K.pending.id(pd))),
+            K.pending.head(K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))),
+              B.utf8(U32.show(K.pending.id(pd))))), None{},
+          Lk.plays_gone_once_answered(pending, B.utf8(U32.show(K.pending.id(pd))))) :
+        {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known,
+          K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))), (plays + 1 : U32)),
+          B.utf8(U32.show(K.pending.id(pd))), ids)) == Nil{} : List<&2, K.Action>}
+      {==}
+
+def Lk.plays_late_answer_is_silent(conf, n, up, clock, names, known, pending, plays, now, ids):
+  late_ok.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays, ids)
+
+def Lk.plays_final_report_goes_pending(conf, n, up, clock, names, known, pending, plays, ms, unix,
+    item, secs, fully, player):
+  {==}
+
+def Lk.plays_progress_report_does_nothing(c, t, item, secs, fully, player):
+  {==}
