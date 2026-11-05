@@ -38,9 +38,10 @@ def life.last_end(l: Life) -> String:
     case Life{_, _, _, e}:
       e
 
-# How a session ended: whether it went live, and why.
+# How a session ended: whether it went live, why, and the plays it left waiting (their lookups
+# never answered; the next session looks them up again).
 type Ended is Data:
-  Ended{up: Bool, why: String}
+  Ended{up: Bool, why: String, left: List<&2, Core.Pending>}
 
 # Music Assistant's socket, once opened.
 type Ma is Type:
@@ -436,11 +437,11 @@ def finish(m: Main) -> IO(Ended):
         shut(mq)
         close.ma(ma)
         Chan.close(R.Ev, events)
-        return Ended{Core.core.up(core), life.last_end(life)}
+        return Ended{Core.core.up(core), life.last_end(life), Core.core.left(core)}
 
-def session.begin(+t: Nat, +u: U32, mq: Socket, +events: Chan(R.Ev), +conf: C.Conf, life: Life)
-    -> IO(Ended):
-  +o = Core.start(conf, time.of(t, u))
+def session.begin(+t: Nat, +u: U32, mq: Socket, +events: Chan(R.Ev), +conf: C.Conf, life: Life,
+    held: List<&2, Core.Pending>) -> IO(Ended):
+  +o = Core.start(conf, time.of(t, u), held)
   do IO<Ended>:
     m : Main <- acts(Core.out.actions(o), Main{mq, MaClosed{}, events, Core.out.core(o), life,
       Loop{Nil{}, U32.from_nat(t)}}, time.of(t, u))
@@ -448,7 +449,7 @@ def session.begin(+t: Nat, +u: U32, mq: Socket, +events: Chan(R.Ev), +conf: C.Co
     finish(m)
 
 def session.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, +events: Chan(R.Ev),
-    +conf: C.Conf, life: Life) -> IO(Ended):
+    +conf: C.Conf, life: Life, held: List<&2, Core.Pending>) -> IO(Ended):
   (mq, r) = p
   match r:
     case Done{reader}:
@@ -457,29 +458,30 @@ def session.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, +events: Chan(
           R.MqUp{reader, Nil{}, events}))
         t : Nat <- IO.now()
         u : U32 <- Ck.Clock.unix()
-        session.begin(t, u, mq, events, conf, life)
+        session.begin(t, u, mq, events, conf, life, held)
     case Fail{_}:
       do IO<Ended>:
         Socket.close(mq)
         Chan.close(R.Ev, events)
-        return Ended{False{}, "no second handle on the broker's socket"}
+        return Ended{False{}, "no second handle on the broker's socket", held}
 
 def session.connected(r: Result<&1, &1, U32 & String, Socket>, +events: Chan(R.Ev),
-    +conf: C.Conf, life: Life) -> IO(Ended):
+    +conf: C.Conf, life: Life, held: List<&2, Core.Pending>) -> IO(Ended):
   match r:
     case Done{mq}:
       do IO<Ended>:
         p : Socket & Result<&1, &1, U32 & String, Socket> <- Sk.Sock.dup(mq)
-        session.dup(p, events, conf, life)
+        session.dup(p, events, conf, life, held)
     case Fail{_}:
       do IO<Ended>:
         Chan.close(R.Ev, events)
-        return Ended{False{}, "can't connect the broker (unreachable, or its name unknown)"}
+        return Ended{False{}, "can't connect the broker (unreachable, or its name unknown)", held}
 
-# One session, from connecting the broker to the end: whether it went live, and why it ended.
-def session(+conf: C.Conf, life: Life) -> IO(Ended):
+# One session, from connecting the broker to the end: whether it went live, why it ended, the plays
+# it left waiting (held: those the last one left).
+def session(+conf: C.Conf, life: Life, held: List<&2, Core.Pending>) -> IO(Ended):
   +mq = C.conf.mq(conf)
   do IO<Ended>:
     events : Chan(R.Ev) <- Chan.new(R.Ev, 16)
     r : Result<&1, &1, U32 & String, Socket> <- Nt.Net.connect(C.mq.host(mq), C.mq.port(mq))
-    session.connected(r, events, conf, life)
+    session.connected(r, events, conf, life, held)

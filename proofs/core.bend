@@ -412,33 +412,35 @@ def acts_one(+names: T.Names, +c: K.Core, pd: K.Pending, ids: Model.Ids)
 
 def answer_one.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
     +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    +held: List<&2, K.Pending>,
     +id: B.Bytes, ids: Model.Ids)
-    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.answered.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays), id, ids))), 2n)
+    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.answered.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), id, ids))), 2n)
         == True{} : Bool}:
   match m:
     case None{}:
       {==}
     case Some{pd}:
-      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, ids)), 1n,
-          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, ids)) :
+      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), pd, ids)), 1n,
+          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), pd, ids)) :
         {Nat.is_lt(_, 2n) == True{} : Bool}
       {==}
 
-def Lk.plays_answer_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, id, ids):
+def Lk.plays_answer_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, held, id, ids):
   answer_one.on(K.pending.find(pending, id, K.pending.head(pending, id)), conf, n, up, clock, names,
-    known, pending, plays, id, ids)
+    known, pending, plays, held, id, ids)
 
 def twice.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
     +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    +held: List<&2, K.Pending>,
     +id: B.Bytes, ids1: Model.Ids, ids2: Model.Ids,
     +h: {K.pending.find(pending, id, K.pending.head(pending, id)) == m : Maybe<&2, K.Pending>})
-    -> {K.out.actions(K.answered(K.out.core(K.answered.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays), id, ids1)), id, ids2))
+    -> {K.out.actions(K.answered(K.out.core(K.answered.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), id, ids1)), id, ids2))
         == Nil{} : List<&2, K.Action>}:
   match m:
     case None{}:
       %Equal.sym(Maybe<&2, K.Pending>, K.pending.find(pending, id, K.pending.head(pending, id)),
           None{}, h) :
-        {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known, pending, plays), id, ids2)) == Nil{} : List<&2, K.Action>}
+        {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), id, ids2)) == Nil{} : List<&2, K.Action>}
       {==}
     case Some{pd}:
       %Equal.sym(Maybe<&2, K.Pending>,
@@ -446,33 +448,35 @@ def twice.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock:
             K.pending.head(K.pending.drop(pending, id), id)), None{},
           Lk.plays_gone_once_answered(pending, id)) :
         {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known,
-          K.pending.drop(pending, id), (plays + 1 : U32)), id, ids2)) == Nil{} : List<&2, K.Action>}
+          K.pending.drop(pending, id), (plays + 1 : U32), held), id, ids2)) == Nil{} : List<&2, K.Action>}
       {==}
 
-def Lk.plays_answered_twice_is_silent(conf, n, up, clock, names, known, pending, plays, id, ids1,
+def Lk.plays_answered_twice_is_silent(conf, n, up, clock, names, known, pending, plays, held, id, ids1,
     ids2):
   twice.on(K.pending.find(pending, id, K.pending.head(pending, id)), conf, n, up, clock, names,
-    known, pending, plays, id, ids1, ids2, {==})
+    known, pending, plays, held, id, ids1, ids2, {==})
 
 def expire_one.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
-    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32)
-    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.expire.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays)))), 2n) == True{} : Bool}:
+    +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    +held: List<&2, K.Pending>)
+    -> {Nat.is_lt(Lk.played.count(K.out.actions(K.expire.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held)))), 2n) == True{} : Bool}:
   match m:
     case None{}:
       {==}
     case Some{+pd}:
-      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, K.no_ids())), 1n,
-          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays), pd, K.no_ids())) :
+      %Equal.sym(Nat, Lk.played.count(K.publish.play.acts(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), pd, K.no_ids())), 1n,
+          acts_one(names, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), pd, K.no_ids())) :
         {Nat.is_lt(_, 2n) == True{} : Bool}
       {==}
 
-def Lk.plays_expiry_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, now):
-  expire_one.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays)
+def Lk.plays_expiry_publishes_at_most_one(conf, n, up, clock, names, known, pending, plays, held, now):
+  expire_one.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays, held)
 
 def late_ok.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
     +names: T.Names, +known: List<&2, K.Known>, +pending: List<&2, K.Pending>, +plays: U32,
+    +held: List<&2, K.Pending>,
     ids: Model.Ids)
-    -> {Lk.late.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays), ids) == Nil{} : List<&2, K.Action>}:
+    -> {Lk.late.on(m, Lk.live.at(conf, n, up, clock, names, known, pending, plays, held), ids) == Nil{} : List<&2, K.Action>}:
   match m:
     case None{}:
       {==}
@@ -484,14 +488,14 @@ def late_ok.on(m: Maybe<&2, K.Pending>, +conf: C.Conf, +n: U32, +up: Bool, +cloc
               B.utf8(U32.show(K.pending.id(pd))))), None{},
           Lk.plays_gone_once_answered(pending, B.utf8(U32.show(K.pending.id(pd))))) :
         {K.out.actions(K.answered.on(_, Lk.live.at(conf, n, up, clock, names, known,
-          K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))), (plays + 1 : U32)),
+          K.pending.drop(pending, B.utf8(U32.show(K.pending.id(pd)))), (plays + 1 : U32), held),
           B.utf8(U32.show(K.pending.id(pd))), ids)) == Nil{} : List<&2, K.Action>}
       {==}
 
-def Lk.plays_late_answer_is_silent(conf, n, up, clock, names, known, pending, plays, now, ids):
-  late_ok.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays, ids)
+def Lk.plays_late_answer_is_silent(conf, n, up, clock, names, known, pending, plays, held, now, ids):
+  late_ok.on(K.expired(pending, now), conf, n, up, clock, names, known, pending, plays, held, ids)
 
-def Lk.plays_final_report_goes_pending(conf, n, up, clock, names, known, pending, plays, ms, unix,
+def Lk.plays_final_report_goes_pending(conf, n, up, clock, names, known, pending, plays, held, ms, unix,
     item, secs, fully, player):
   {==}
 
@@ -522,17 +526,17 @@ def if_new_none(same: Bool, b: K.Book, +c: K.Core, +id: B.Bytes, +level: B.Bytes
       {==}
     case False{}:
       match b:
-        case K.Book{w, x, y, z}:
+        case K.Book{w, x, y, z, h}:
           {==}
 
 def pl_none(b: K.Book, +c: K.Core, +id: B.Bytes, +p: Model.Player)
     -> {Lk.played.any(K.out.actions(K.publish.learned(b, c, id, p))) == False{} : Bool}:
   match b:
-    case K.Book{+names, +known, +pending, +plays}:
+    case K.Book{+names, +known, +pending, +plays, +held}:
       if_new_none(Bool.or(List.is_empty(&2, U32,
             K.level.on(T.level.of(T.learn(names, id, K.player.name(p)), id), id)),
           K.known.same(known, id, T.state(p))),
-        K.Book{T.learn(names, id, K.player.name(p)), known, pending, plays}, c, id,
+        K.Book{T.learn(names, id, K.player.name(p)), known, pending, plays, held}, c, id,
         K.level.on(T.level.of(T.learn(names, id, K.player.name(p)), id), id), T.state(p))
 
 def pp_none(ps: List<&2, Model.Player>, +c: K.Core)
@@ -546,9 +550,43 @@ def pp_none(ps: List<&2, Model.Player>, +c: K.Core)
         pl_none(K.core.book(c), c, K.player.id(p), p),
         pp_none(t, K.out.core(K.publish.player(c, p))))
 
+def relook_add_none(b: K.Book, +c: K.Core, +play: Model.Play, +unix: U32, +ms: U32)
+    -> {Lk.played.any(K.out.actions(K.relook.add(b, c, play, unix, ms))) == False{} : Bool}:
+  match b:
+    case K.Book{w, x, y, z, h}:
+      {==}
+
+def relook_one_none(h: K.Pending, +c: K.Core, +ms: U32)
+    -> {Lk.played.any(K.out.actions(K.relook.one(h, c, ms))) == False{} : Bool}:
+  match h:
+    case K.Pending{i, +play, +unix, s}:
+      relook_add_none(K.core.book(c), c, play, unix, ms)
+
+# Carried plays are only looked up again: no play.
+def relook_none(hs: List<&2, K.Pending>, +c: K.Core, +ms: U32)
+    -> {Lk.played.any(K.out.actions(K.relook(hs, c, ms))) == False{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +t:
+      app_none(K.out.actions(K.relook.one(h, c, ms)),
+        K.out.actions(K.relook(t, K.out.core(K.relook.one(h, c, ms)), ms)),
+        relook_one_none(h, c, ms), relook_none(t, K.out.core(K.relook.one(h, c, ms)), ms))
+
 def live_none(+c: K.Core, +t: K.Time, +ps: List<&2, Model.Player>)
     -> {Lk.played.any(K.out.actions(K.live(c, t, ps))) == False{} : Bool}:
-  pp_none(ps, K.with.up(K.with.phase(c, K.Live{})))
+  app_none(K.out.actions(K.players.publish(ps, K.with.up(K.with.phase(c, K.Live{})))),
+    K.out.actions(K.relook(
+      K.book.held(K.core.book(K.out.core(K.players.publish(ps, K.with.up(K.with.phase(c,
+        K.Live{})))))),
+      K.with.held(K.out.core(K.players.publish(ps, K.with.up(K.with.phase(c, K.Live{})))), Nil{}),
+      K.time.ms(t))),
+    pp_none(ps, K.with.up(K.with.phase(c, K.Live{}))),
+    relook_none(
+      K.book.held(K.core.book(K.out.core(K.players.publish(ps, K.with.up(K.with.phase(c,
+        K.Live{})))))),
+      K.with.held(K.out.core(K.players.publish(ps, K.with.up(K.with.phase(c, K.Live{})))), Nil{}),
+      K.time.ms(t)))
 
 def connack_none(ok: Bool, ph: K.Phase, +code: U32, +c: K.Core, +t: K.Time)
     -> {Lk.played.any(K.out.actions(K.connack.on(ok, ph, code, c, t))) == False{} : Bool}:
@@ -594,8 +632,9 @@ def mq_none(+c: K.Core, +t: K.Time, p: M.Packet)
     case M.Disconnect{}:
       {==}
 
-def played_none(final: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +ph: K.Phase, +ms: U32, +u: U32, +p: Model.Play)
-    -> {Lk.played.any(K.out.actions(K.played.if(final, Lk.idle.at(conf, ph, n, up, clock, names, known, plays), K.Time{ms, u}, p))) == False{}
+def played_none(final: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +ph: K.Phase, +ms: U32, +u: U32, +p: Model.Play)
+    -> {Lk.played.any(K.out.actions(K.played.if(final, Lk.idle.at(conf, ph, n, up, clock, names, known, plays, held), K.Time{ms, u}, p))) == False{}
         : Bool}:
   match final:
     case True{}:
@@ -603,32 +642,35 @@ def played_none(final: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
     case False{}:
       {==}
 
-def happened_none(upd: Bool, ply: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +ph: K.Phase, +ms: U32, +u: U32, +caps: Model.Caps)
-    -> {Lk.played.any(K.out.actions(K.happened(upd, ply, Lk.idle.at(conf, ph, n, up, clock, names, known, plays), K.Time{ms, u}, caps)))
+def happened_none(upd: Bool, ply: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +ph: K.Phase, +ms: U32, +u: U32, +caps: Model.Caps)
+    -> {Lk.played.any(K.out.actions(K.happened(upd, ply, Lk.idle.at(conf, ph, n, up, clock, names, known, plays, held), K.Time{ms, u}, caps)))
         == False{} : Bool}:
   match upd:
     case True{}:
-      pl_none(K.core.book(Lk.idle.at(conf, ph, n, up, clock, names, known, plays)), Lk.idle.at(conf, ph, n, up, clock, names, known, plays),
+      pl_none(K.core.book(Lk.idle.at(conf, ph, n, up, clock, names, known, plays, held)), Lk.idle.at(conf, ph, n, up, clock, names, known, plays, held),
         K.player.id(Model.player(caps, Model.at(["data"]))), Model.player(caps, Model.at(["data"])))
     case False{}:
       match ply:
         case True{}:
-          played_none(K.play.final(Model.play(caps)), conf, n, up, clock, names, known, plays, ph,
+          played_none(K.play.final(Model.play(caps)), conf, n, up, clock, names, known, plays, held, ph,
             ms, u, Model.play(caps))
         case False{}:
           {==}
 
-def list_none(mine: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +id: B.Bytes, +ms: U32, +u: U32, +caps: Model.Caps)
-    -> {Lk.played.any(K.out.actions(K.reply.list(mine, id, Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays), K.Time{ms, u},
+def list_none(mine: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +id: B.Bytes, +ms: U32, +u: U32, +caps: Model.Caps)
+    -> {Lk.played.any(K.out.actions(K.reply.list(mine, id, Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays, held), K.Time{ms, u},
         caps))) == False{} : Bool}:
   match mine:
     case True{}:
-      live_none(Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays), K.Time{ms, u}, Model.players(caps))
+      live_none(Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays, held), K.Time{ms, u}, Model.players(caps))
     case False{}:
       {==}
 
-def refused_none(mine: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +id: B.Bytes, d: B.Bytes)
-    -> {Lk.played.any(K.out.actions(K.refused.list(mine, id, d, Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays)))) == False{}
+def refused_none(mine: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +id: B.Bytes, d: B.Bytes)
+    -> {Lk.played.any(K.out.actions(K.refused.list(mine, id, d, Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays, held)))) == False{}
         : Bool}:
   match mine:
     case True{}:
@@ -636,25 +678,27 @@ def refused_none(mine: Bool, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock,
     case False{}:
       {==}
 
-def msg_none_listing(m: Model.Msg, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +ms: U32, +u: U32, +caps: Model.Caps)
-    -> {Lk.played.any(K.out.actions(K.message.on(m, K.Listing{}, Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays), K.Time{ms, u},
+def msg_none_listing(m: Model.Msg, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +ms: U32, +u: U32, +caps: Model.Caps)
+    -> {Lk.played.any(K.out.actions(K.message.on(m, K.Listing{}, Lk.idle.at(conf, K.Listing{}, n, up, clock, names, known, plays, held), K.Time{ms, u},
         caps))) == False{} : Bool}:
   match m:
     case Model.Hello{v}:
       {==}
     case Model.Reply{+id}:
-      list_none(K.is.text(id, "2"), conf, n, up, clock, names, known, plays, id, ms, u, caps)
+      list_none(K.is.text(id, "2"), conf, n, up, clock, names, known, plays, held, id, ms, u, caps)
     case Model.Refused{+id, code, +d}:
-      refused_none(K.is.text(id, "2"), conf, n, up, clock, names, known, plays, id, d)
+      refused_none(K.is.text(id, "2"), conf, n, up, clock, names, known, plays, held, id, d)
     case Model.Happened{+ev, o}:
       happened_none(Bool.or(K.is.text(ev, "player_updated"), K.is.text(ev, "player_added")),
-        K.is.text(ev, "media_item_played"), conf, n, up, clock, names, known, plays, K.Listing{},
+        K.is.text(ev, "media_item_played"), conf, n, up, clock, names, known, plays, held, K.Listing{},
         ms, u, caps)
     case Model.Unknown{}:
       {==}
 
-def msg_none_live(m: Model.Msg, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +ms: U32, +u: U32, +caps: Model.Caps)
-    -> {Lk.played.any(K.out.actions(K.message.on(m, K.Live{}, Lk.idle.at(conf, K.Live{}, n, up, clock, names, known, plays), K.Time{ms, u},
+def msg_none_live(m: Model.Msg, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clock, +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +ms: U32, +u: U32, +caps: Model.Caps)
+    -> {Lk.played.any(K.out.actions(K.message.on(m, K.Live{}, Lk.idle.at(conf, K.Live{}, n, up, clock, names, known, plays, held), K.Time{ms, u},
         caps))) == False{} : Bool}:
   match m:
     case Model.Hello{v}:
@@ -665,16 +709,16 @@ def msg_none_live(m: Model.Msg, +conf: C.Conf, +n: U32, +up: Bool, +clock: K.Clo
       {==}
     case Model.Happened{+ev, o}:
       happened_none(Bool.or(K.is.text(ev, "player_updated"), K.is.text(ev, "player_added")),
-        K.is.text(ev, "media_item_played"), conf, n, up, clock, names, known, plays, K.Live{},
+        K.is.text(ev, "media_item_played"), conf, n, up, clock, names, known, plays, held, K.Live{},
         ms, u, caps)
     case Model.Unknown{}:
       {==}
 
 def tick_none(b1: Bool, b2: Bool, b3: Bool, b4: Bool, b5: Bool, live: Bool, +conf: C.Conf, +n: U32,
     +up: Bool, +w: U32, +x: U32, +y: U32, +z: U32, +names: T.Names, +known: List<&2, K.Known>,
-    +plays: U32, +ph: K.Phase,
+    +plays: U32, +held: List<&2, K.Pending>, +ph: K.Phase,
     +now: U32)
-    -> {Lk.played.any(K.out.actions(K.tick.if(b1, b2, b3, b4, b5, live, Lk.idle.at(conf, ph, n, up, K.Clock{w, x, y, z}, names, known, plays), now)))
+    -> {Lk.played.any(K.out.actions(K.tick.if(b1, b2, b3, b4, b5, live, Lk.idle.at(conf, ph, n, up, K.Clock{w, x, y, z}, names, known, plays, held), now)))
         == False{} : Bool}:
   match b1:
     case True{}:
@@ -719,11 +763,12 @@ def tick_none(b1: Bool, b2: Bool, b3: Bool, b4: Bool, b5: Bool, live: Bool, +con
                           {==}
 
 def event_none_listing(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc: U32, +d: U32,
-    +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +ms: U32, +u: U32, ev: K.Input)
-    -> {Lk.played.any(K.out.actions(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev))) == False{} : Bool}:
+    +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +ms: U32, +u: U32, ev: K.Input)
+    -> {Lk.played.any(K.out.actions(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev))) == False{} : Bool}:
   match ev:
     case K.MqPacket{p}:
-      mq_none(K.with.mq_heard(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), ms), K.Time{ms, u}, p)
+      mq_none(K.with.mq_heard(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), ms), K.Time{ms, u}, p)
     case K.MqLost{}:
       {==}
     case K.MaHeard{h}:
@@ -731,7 +776,7 @@ def event_none_listing(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc:
         case L.Opened{}:
           {==}
         case L.Message{+caps}:
-          msg_none_listing(Model.classify(caps), conf, n, up, K.Clock{a, b, ms, d}, names, known, plays, ms,
+          msg_none_listing(Model.classify(caps), conf, n, up, K.Clock{a, b, ms, d}, names, known, plays, held, ms,
             u, caps)
         case L.Garbled{}:
           {==}
@@ -747,26 +792,27 @@ def event_none_listing(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc:
         Bool.and(K.broker.up(K.Listing{}), K.since(ms, cc, K.ma_quiet())),
         Bool.and(K.broker.up(K.Listing{}), K.since(ms, b, K.ping_every())),
         Bool.and(K.is.live(K.Listing{}), K.since(ms, d, K.report_every())), K.is.live(K.Listing{}),
-        conf, n, up, a, b, cc, d, names, known, plays, K.Listing{}, ms)
+        conf, n, up, a, b, cc, d, names, known, plays, held, K.Listing{}, ms)
 
-def Lk.plays_none_from_nowhere_listing(conf, n, up, clock, names, known, plays, t, ev):
+def Lk.plays_none_from_nowhere_listing(conf, n, up, clock, names, known, plays, held, t, ev):
   match clock:
     case K.Clock{+a, +b, +cc, +d}:
       match t:
         case K.Time{+ms, +u}:
           %Equal.sym(List<&2, K.Action>,
-              K.out.actions(K.sent(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev), ms)),
-              K.out.actions(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev)),
-              sent_keeps(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev), ms)) :
+              K.out.actions(K.sent(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev), ms)),
+              K.out.actions(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev)),
+              sent_keeps(K.event(Lk.idle.at(conf, K.Listing{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev), ms)) :
             {Lk.played.any(_) == False{} : Bool}
-          event_none_listing(conf, n, up, a, b, cc, d, names, known, plays, ms, u, ev)
+          event_none_listing(conf, n, up, a, b, cc, d, names, known, plays, held, ms, u, ev)
 
 def event_none_live(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc: U32, +d: U32,
-    +names: T.Names, +known: List<&2, K.Known>, +plays: U32, +ms: U32, +u: U32, ev: K.Input)
-    -> {Lk.played.any(K.out.actions(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev))) == False{} : Bool}:
+    +names: T.Names, +known: List<&2, K.Known>, +plays: U32,
+    +held: List<&2, K.Pending>, +ms: U32, +u: U32, ev: K.Input)
+    -> {Lk.played.any(K.out.actions(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev))) == False{} : Bool}:
   match ev:
     case K.MqPacket{p}:
-      mq_none(K.with.mq_heard(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), ms), K.Time{ms, u}, p)
+      mq_none(K.with.mq_heard(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), ms), K.Time{ms, u}, p)
     case K.MqLost{}:
       {==}
     case K.MaHeard{h}:
@@ -774,7 +820,7 @@ def event_none_live(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc: U3
         case L.Opened{}:
           {==}
         case L.Message{+caps}:
-          msg_none_live(Model.classify(caps), conf, n, up, K.Clock{a, b, ms, d}, names, known, plays, ms,
+          msg_none_live(Model.classify(caps), conf, n, up, K.Clock{a, b, ms, d}, names, known, plays, held, ms,
             u, caps)
         case L.Garbled{}:
           {==}
@@ -790,16 +836,16 @@ def event_none_live(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc: U3
         Bool.and(K.broker.up(K.Live{}), K.since(ms, cc, K.ma_quiet())),
         Bool.and(K.broker.up(K.Live{}), K.since(ms, b, K.ping_every())),
         Bool.and(K.is.live(K.Live{}), K.since(ms, d, K.report_every())), K.is.live(K.Live{}),
-        conf, n, up, a, b, cc, d, names, known, plays, K.Live{}, ms)
+        conf, n, up, a, b, cc, d, names, known, plays, held, K.Live{}, ms)
 
-def Lk.plays_none_from_nowhere_live(conf, n, up, clock, names, known, plays, t, ev):
+def Lk.plays_none_from_nowhere_live(conf, n, up, clock, names, known, plays, held, t, ev):
   match clock:
     case K.Clock{+a, +b, +cc, +d}:
       match t:
         case K.Time{+ms, +u}:
           %Equal.sym(List<&2, K.Action>,
-              K.out.actions(K.sent(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev), ms)),
-              K.out.actions(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev)),
-              sent_keeps(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays), K.Time{ms, u}, ev), ms)) :
+              K.out.actions(K.sent(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev), ms)),
+              K.out.actions(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev)),
+              sent_keeps(K.event(Lk.idle.at(conf, K.Live{}, n, up, K.Clock{a, b, cc, d}, names, known, plays, held), K.Time{ms, u}, ev), ms)) :
             {Lk.played.any(_) == False{} : Bool}
-          event_none_live(conf, n, up, a, b, cc, d, names, known, plays, ms, u, ev)
+          event_none_live(conf, n, up, a, b, cc, d, names, known, plays, held, ms, u, ev)

@@ -124,13 +124,14 @@ type Viol is Data:
   Viol{ghost: U32, early: U32, dup: U32, phantom: U32, late: U32}
 
 # quiet: up, and nothing sent to the broker for over 35 s; deaf: still up although the broker has
-# been silent for over 95 s; unasked: a final report taken without exactly one lookup.
+# been silent for over 95 s; unasked: a final report taken without exactly one lookup;
+# unfinished: plays still waiting when a run ended (not a violation: the run stopped).
 type Watch is Data:
-  Watch{quiet: U32, deaf: U32, unasked: U32}
+  Watch{quiet: U32, deaf: U32, unasked: U32, unfinished: U32}
 
-# lost: final reports whose session ended before they were published.
+# carried: plays still waiting when their session ended (the next one looks them up again).
 type Stats is Data:
-  Stats{sessions: U32, finals: U32, published: U32, lost: U32, steps: U32}
+  Stats{sessions: U32, finals: U32, published: U32, carried: U32, steps: U32}
 
 # The time, when the broker was last heard and sent to, when the last tick ran.
 type Clock is Data:
@@ -334,18 +335,19 @@ def waiting.count(os: List<&2, Open>) -> U32:
 # Picking inputs
 # --------------
 
-# The input, how far the clock moves (ms), whether it is a final report, whether it is the broker.
+# The input, how far the clock moves (ms), whether it is a final report, whether it is the broker,
+# how many quiet seconds follow (a tick each, as the main loop runs them).
 type Pick is Data:
-  Pick{input: K.Input, dt: U32, final: Bool, mq: Bool}
+  Pick{input: K.Input, dt: U32, final: Bool, mq: Bool, idle: Nat}
 
 def tick.pick(+r: U32) -> Pick:
-  Pick{K.Tick{}, (1000 + pick(r, 20000) : U32), False{}, False{}}
+  Pick{K.Tick{}, 1000, False{}, False{}, U32.to_nat(pick(r, 20))}
 
 def ev.pick(i: K.Input, +r: U32) -> Pick:
-  Pick{i, pick(r, 1500), False{}, False{}}
+  Pick{i, pick(r, 1500), False{}, False{}, 0n}
 
 def mq.pick(i: K.Input, +r: U32) -> Pick:
-  Pick{i, pick(r, 1500), False{}, True{}}
+  Pick{i, pick(r, 1500), False{}, True{}, 0n}
 
 def nth(xs: List<&2, U32>, k: Nat, +d: U32) -> U32:
   match xs:
@@ -432,7 +434,7 @@ def pick.live(+cat: U32, +r: U32, asked: List<&2, U32>, +track: U32) -> Pick:
     case 2:
       ev.pick(m.report(track, False{}), r)
     case 3:
-      Pick{m.report(track, True{}), pick(r, 1500), True{}, False{}}
+      Pick{m.report(track, True{}), pick(r, 1500), True{}, False{}, 0n}
     case 4:
       ev.pick(m.answer(answer.id(pick(r, 4), asked)), r)
     case 5:
@@ -450,6 +452,18 @@ def pick.live(+cat: U32, +r: U32, asked: List<&2, U32>, +track: U32) -> Pick:
 
 # One step
 # --------
+
+# Quiet seconds: a tick each.
+type Idle is Data:
+  Idle{core: K.Core, now: U32, actions: List<&2, K.Action>}
+
+def idle.run(n: Nat, +c: K.Core, +now: U32, acc: List<&2, K.Action>) -> Idle:
+  match n:
+    case 0n:
+      Idle{c, now, acc}
+    case 1n+p:
+      +o = K.step(c, time.at((now + 1000 : U32)), K.Tick{})
+      idle.run(p, K.out.core(o), (now + 1000 : U32), List.append(&2, K.Action, acc, K.out.actions(o)))
 
 def tick.if(due: Bool, +c: K.Core, +t: K.Time) -> K.Out:
   match due:
@@ -486,22 +500,41 @@ def late.mark.on(live: Bool, +os: List<&2, Open>, +now: U32) -> List<&2, Open>:
     case False{}:
       os
 
+# A session that ended keeps its waiting plays on record (they are carried over); its lookup ids
+# are done with.
 def after.ledger.end(ended: Bool, l: Ledger) -> Ledger:
   match ended:
     case True{}:
       match l:
-        case Ledger{_, _, track}:
-          Ledger{Nil{}, Nil{}, track}
+        case Ledger{os, _, track}:
+          Ledger{os, Nil{}, track}
     case False{}:
       l
+
+# Going live again: carried plays are due from now.
+def reset.at(os: List<&2, Open>, +now: U32) -> List<&2, Open>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> t:
+      match o:
+        case Open{u, at, +d, fl}:
+          Open{u, u32.if(U32.is_eq(d, 0), now, at), d, fl} <> reset.at(t, now)
+
+def reset.if(went_live: Bool, +os: List<&2, Open>, +now: U32) -> List<&2, Open>:
+  match went_live:
+    case True{}:
+      reset.at(os, now)
+    case False{}:
+      os
 
 # The record after a step's actions: plays attributed, a taken final report opened, the lookups
 # asked for kept (newest first), late ones flagged; a session that ended closes its record.
 def after.ledger(+as: List<&2, K.Action>, +take: Bool, +live: Bool, +ended: Bool, +now: U32,
-    l: Ledger) -> Ledger:
+    l: Ledger, +went_live: Bool) -> Ledger:
   match l:
     case Ledger{os, asked, +track}:
-      +os1 = opens.add(take, track, now, os)
+      +os1 = opens.add(take, track, now, reset.if(went_live, os, now))
       +os2 = late.mark.on(live, os1, now)
       after.ledger.end(ended, Ledger{os2, prepend(asked.of(as), asked), track})
 
@@ -513,8 +546,8 @@ def viol.after(v: Viol, +early: Bool, +late: U32) -> Viol:
 
 def watch.after(w: Watch, +quiet: Bool, +deaf: Bool, +unasked: Bool) -> Watch:
   match w:
-    case Watch{q, d, u}:
-      Watch{bump(quiet, q), bump(deaf, d), bump(unasked, u)}
+    case Watch{q, d, u, n}:
+      Watch{bump(quiet, q), bump(deaf, d), bump(unasked, u), n}
 
 def stats.after(s: Stats, +ended: Bool, +take: Bool, +published: U32, +lost: U32) -> Stats:
   match s:
@@ -561,7 +594,7 @@ def ledger.next(final: Bool, l: Ledger) -> Ledger:
 
 # The checks of one step, once its plays are attributed (pc: the record and violations after).
 def sim.after.on(clock: Clock, +l1: Ledger, v1: Viol, +as: List<&2, K.Action>, +c2: K.Core,
-    +r: U32, w: Watch, st: Stats, +early: Bool, +take: Bool, +final: Bool) -> Sim:
+    +r: U32, w: Watch, st: Stats, +early: Bool, +take: Bool, +final: Bool, +was_live: Bool) -> Sim:
   match clock:
     case Clock{+now, +heard, +sent, +tick}:
       +ph2 = K.core.phase(c2)
@@ -569,28 +602,41 @@ def sim.after.on(clock: Clock, +l1: Ledger, v1: Viol, +as: List<&2, K.Action>, +
       +up = K.broker.up(ph2)
       +live = K.is.live(ph2)
       +ended = has_ended(as)
-      +opens = opens.add(take, ledger.track(l1), now, ledger.opens(l1))
+      +opens = opens.add(take, ledger.track(l1), now,
+        reset.if(Bool.and(live, Bool.not(was_live)), ledger.opens(l1), now))
       +quiet = Bool.and(Bool.and(alive, up), ((now - sent : U32) > 35000 : U32))
       +deaf = Bool.and(Bool.and(alive, up), ((now - heard : U32) > 95000 : U32))
       +unasked = Bool.and(take, Bool.not(U32.is_eq(U32.from_nat(List.length(&2, U32, asked.of(as))), 1)))
       Sim{c2, Clock{now, heard, sent, tick},
-        ledger.next(final, after.ledger(as, take, live, ended, now, l1)), r,
+        ledger.next(final, after.ledger(as, take, live, ended, now, l1,
+          Bool.and(live, Bool.not(was_live)))), r,
         Tally{viol.after(v1, Bool.and(early, has_data(as)), late.if(live, opens, now)),
           watch.after(w, quiet, deaf, unasked),
           stats.after(st, ended, take, U32.from_nat(List.length(&2, B.Bytes, plays.of(as))),
             lost.if(ended, opens))}}
 
 def sim.after(pc: Checked, clock: Clock, +as: List<&2, K.Action>, +c2: K.Core, +r: U32,
-    w: Watch, st: Stats, +early: Bool, +take: Bool, +final: Bool) -> Sim:
+    w: Watch, st: Stats, +early: Bool, +take: Bool, +final: Bool, +was_live: Bool) -> Sim:
   match pc:
     case Checked{l1, v1}:
-      sim.after.on(clock, l1, v1, as, c2, r, w, st, early, take, final)
+      sim.after.on(clock, l1, v1, as, c2, r, w, st, early, take, final, was_live)
+
+# The checks after the step's quiet seconds too.
+def sim.idle(i: Idle, +ledger: Ledger, v: Viol, +mq: Bool, +heard: U32, +sent: U32, +due: Bool,
+    +tick: U32, +now2: U32, +r: U32, w: Watch, st: Stats, +early: Bool, +take: Bool, +final: Bool,
+    +was_live: Bool) -> Sim:
+  match i:
+    case Idle{c, +now3, +as}:
+      sim.after(plays.check(plays.of(as), Checked{ledger, v}),
+        Clock{now3, u32.if(mq, now2, heard), u32.if(has_mq(as), now3, sent),
+          u32.if(Bool.or(due, Bool.not(U32.is_eq(now3, now2))), now3, tick)},
+        as, c, rnd(r), w, st, early, take, final, was_live)
 
 # One input (and the tick that follows once a second has passed) through the core.
-def sim.feed(p: Pick, clock: Clock, tally: Tally, +core: K.Core, +ledger: Ledger, +r: U32,
-    +early: Bool, +taking: Bool) -> Sim:
+def sim.feed.on(p: Pick, clock: Clock, tally: Tally, +core: K.Core, +ledger: Ledger, +r: U32,
+    +early: Bool, +taking: Bool, +was_live: Bool) -> Sim:
   match p:
-    case Pick{input, +dt, +final, +mq}:
+    case Pick{input, +dt, +final, +mq, idle}:
       match clock:
         case Clock{+now, +heard, +sent, +tick}:
           match tally:
@@ -600,11 +646,14 @@ def sim.feed(p: Pick, clock: Clock, tally: Tally, +core: K.Core, +ledger: Ledger
               +o1 = K.step(core, t, input)
               +due = ((now2 - tick : U32) >= 1000 : U32)
               +o2 = tick.if(due, K.out.core(o1), t)
-              +as = List.append(&2, K.Action, K.out.actions(o1), K.out.actions(o2))
-              sim.after(plays.check(plays.of(as), Checked{ledger, v}),
-                Clock{now2, u32.if(mq, now2, heard), u32.if(has_mq(as), now2, sent),
-                  u32.if(due, now2, tick)},
-                as, K.out.core(o2), rnd(r), w, st, early, Bool.and(final, taking), final)
+              +i = idle.run(idle, K.out.core(o2), now2,
+                List.append(&2, K.Action, K.out.actions(o1), K.out.actions(o2)))
+              sim.idle(i, ledger, v, mq, heard, sent, due, tick, now2, r, w, st, early,
+                Bool.and(final, taking), final, was_live)
+
+def sim.feed(p: Pick, clock: Clock, tally: Tally, +core: K.Core, +ledger: Ledger, +r: U32,
+    +early: Bool, +taking: Bool) -> Sim:
+  sim.feed.on(p, clock, tally, core, ledger, r, early, taking, K.is.live(K.core.phase(core)))
 
 # After an end: the old core must do nothing more; a new session starts a second later.
 def sim.restart(+core: K.Core, clock: Clock, ledger: Ledger, +r: U32, tally: Tally) -> Sim:
@@ -619,7 +668,8 @@ def sim.restart(+core: K.Core, clock: Clock, ledger: Ledger, +r: U32, tally: Tal
               +ghost = Bool.or(Bool.not(List.is_empty(&2, K.Action, K.out.actions(K.step(core, t,
                 K.Tick{})))), Bool.not(List.is_empty(&2, K.Action, K.out.actions(K.step(core, t,
                 m.updated(r))))))
-              Sim{K.out.core(K.start(conf(), t)), Clock{now2, now2, now2, now2}, ledger, rnd(r),
+              Sim{K.out.core(K.start(conf(), t, K.core.left(core))), Clock{now2, now2, now2, now2},
+                ledger, rnd(r),
                 Tally{Viol{bump(ghost, g), e, d, ph, lt}, w, st}}
 
 def sim.step.on(ph: K.Phase, +v: U32, +core: K.Core, clock: Clock, +ledger: Ledger, +r: U32,
@@ -656,15 +706,20 @@ def sim.steps(n: Nat, s: Sim) -> Sim:
     case 1n+p:
       sim.steps(p, sim.step(s))
 
-def tally.of(s: Sim) -> Tally:
+# The tally at the end of a run, with the plays still waiting then.
+def sim.finish(s: Sim) -> Tally:
   match s:
-    case Sim{_, _, _, _, t}:
-      t
+    case Sim{_, _, l, _, t}:
+      match t:
+        case Tally{v, w, st}:
+          match w:
+            case Watch{q, d, u, n}:
+              Tally{v, Watch{q, d, u, (n + waiting.count(ledger.opens(l)) : U32)}, st}
 
 # A run: a fresh session at time 1e6, then its steps (sessions restart as they end).
 def sim.run(+seed: U32, +steps: Nat, tally: Tally) -> Tally:
   +t = time.at(1000000)
-  tally.of(sim.steps(steps, Sim{K.out.core(K.start(conf(), t)),
+  sim.finish(sim.steps(steps, Sim{K.out.core(K.start(conf(), t, Nil{})),
     Clock{1000000, 1000000, 1000000, 1000000}, Ledger{Nil{}, Nil{}, 0}, seed, tally}))
 
 def sim.runs(n: Nat, +seed: U32, +steps: Nat, tally: Tally) -> Tally:
@@ -680,16 +735,17 @@ def show(t: Tally) -> String:
       match v:
         case Viol{g, e, d, ph, lt}:
           match w:
-            case Watch{q, de, u}:
+            case Watch{q, de, u, un}:
               match s:
                 case Stats{n, f, p, l, st}:
                   U32.show(st) ++ " steps, " ++ U32.show(n) ++ " sessions ended, "
-                    ++ U32.show(f) ++ " final reports, " ++ U32.show(p) ++ " plays published, "
-                    ++ U32.show(l) ++ " lost when their session ended\nviolations: ghost "
+                    ++ U32.show(f) ++ " final reports, " ++ U32.show(p) ++ " plays published ("
+                    ++ U32.show(l) ++ " carried over a session's end), "
+                    ++ U32.show(un) ++ " still waiting when a run stopped\nviolations: ghost "
                     ++ U32.show(g) ++ ", early " ++ U32.show(e) ++ ", dup " ++ U32.show(d)
                     ++ ", phantom " ++ U32.show(ph) ++ ", late " ++ U32.show(lt) ++ ", quiet "
                     ++ U32.show(q) ++ ", deaf " ++ U32.show(de) ++ ", unasked " ++ U32.show(u)
 
 def main() -> IO(Unit):
-  IO.print(show(sim.runs(200n, 2463534242, 400n, Tally{Viol{0, 0, 0, 0, 0}, Watch{0, 0, 0},
+  IO.print(show(sim.runs(200n, 2463534242, 400n, Tally{Viol{0, 0, 0, 0, 0}, Watch{0, 0, 0, 0},
     Stats{0, 0, 0, 0, 0}})))

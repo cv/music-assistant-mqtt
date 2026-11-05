@@ -105,7 +105,7 @@ def session.on(o: K.Out) -> List<&2, String>:
 # its pong; the first report 10 s after going live; a broker ping after 30 s of sending nothing;
 # a lost broker ends the session, and nothing happens after the end.
 law core_session:
-  {session.on(K.start(conf(), t(0)))
+  {session.on(K.start(conf(), t(0), Nil{}))
     == ["connect music-assistant-mqtt | ",
      "open ma | ",
      "",
@@ -296,8 +296,9 @@ def played.count(as: List<&2, K.Action>) -> Nat:
       played.add(played.is(a), played.count(t))
 
 def live.at(conf: C.Conf, +n: U32, up: Bool, clock: K.Clock, names: T.Names,
-    known: List<&2, K.Known>, pending: List<&2, K.Pending>, +plays: U32) -> K.Core:
-  K.Core{conf, K.Session{K.Live{}, n, up}, clock, K.Book{names, known, pending, plays}}
+    known: List<&2, K.Known>, pending: List<&2, K.Pending>, +plays: U32,
+    held: List<&2, K.Pending>) -> K.Core:
+  K.Core{conf, K.Session{K.Live{}, n, up}, clock, K.Book{names, known, pending, plays, held}}
 
 # For every pending list and id: once the plays answering an id are dropped, none answers it.
 law plays_gone_once_answered:
@@ -316,10 +317,11 @@ law plays_answer_publishes_at_most_one:
   for +known: List<&2, K.Known>
   for +pending: List<&2, K.Pending>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +id: B.Bytes
   for ids: Model.Ids
   {Nat.is_lt(played.count(K.out.actions(
-      K.answered(live.at(conf, n, up, clock, names, known, pending, plays), id, ids))), 2n)
+      K.answered(live.at(conf, n, up, clock, names, known, pending, plays, held), id, ids))), 2n)
     == True{} : Bool}
 
 # For every book and id: a second answer under the same id publishes nothing.
@@ -332,14 +334,16 @@ law plays_answered_twice_is_silent:
   for +known: List<&2, K.Known>
   for +pending: List<&2, K.Pending>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +id: B.Bytes
   for ids1: Model.Ids
   for ids2: Model.Ids
   {K.out.actions(K.answered(K.out.core(
-      K.answered(live.at(conf, n, up, clock, names, known, pending, plays), id, ids1)), id, ids2))
+      K.answered(live.at(conf, n, up, clock, names, known, pending, plays, held), id, ids1)), id, ids2))
     == Nil{} : List<&2, K.Action>}
 
-# For every book and time: an expiry publishes at most one play.
+# For every book and time: each expiry (the oldest lookup that waited too long; a tick runs one
+# per overdue lookup) publishes at most one play.
 law plays_expiry_publishes_at_most_one:
   for +conf: C.Conf
   for +n: U32
@@ -349,9 +353,10 @@ law plays_expiry_publishes_at_most_one:
   for +known: List<&2, K.Known>
   for +pending: List<&2, K.Pending>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +now: U32
-  {Nat.is_lt(played.count(K.out.actions(K.routine.expire(True{},
-      live.at(conf, n, up, clock, names, known, pending, plays), now))), 2n) == True{} : Bool}
+  {Nat.is_lt(played.count(K.out.actions(K.expire.on(K.expired(pending, now),
+      live.at(conf, n, up, clock, names, known, pending, plays, held)))), 2n) == True{} : Bool}
 
 # The answer that comes after its play expired (its own id bytes): nothing, when one expired.
 def late.on(m: Maybe<&2, K.Pending>, +c: K.Core, ids: Model.Ids) -> List<&2, K.Action>:
@@ -371,9 +376,10 @@ law plays_late_answer_is_silent:
   for +known: List<&2, K.Known>
   for +pending: List<&2, K.Pending>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +now: U32
   for ids: Model.Ids
-  {late.on(K.expired(pending, now), live.at(conf, n, up, clock, names, known, pending, plays), ids)
+  {late.on(K.expired(pending, now), live.at(conf, n, up, clock, names, known, pending, plays, held), ids)
     == Nil{} : List<&2, K.Action>}
 
 # For every live core and final report: it goes pending under the next id, with one lookup.
@@ -386,16 +392,18 @@ law plays_final_report_goes_pending:
   for +known: List<&2, K.Known>
   for +pending: List<&2, K.Pending>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +ms: U32
   for +unix: U32
   for +item: Model.Media
   for +secs: U32
   for +fully: Bool
   for +player: B.Bytes
-  {K.played(live.at(conf, n, up, clock, names, known, pending, plays), K.Time{ms, unix},
+  {K.played(live.at(conf, n, up, clock, names, known, pending, plays, held), K.Time{ms, unix},
       Model.Play{item, secs, fully, True{}, player})
     == K.Out{live.at(conf, (n + 1 : U32), up, clock, names, known,
-          K.Pending{n, Model.Play{item, secs, fully, True{}, player}, unix, ms} <> pending, plays),
+          K.Pending{n, Model.Play{item, secs, fully, True{}, player}, unix, ms} <> pending, plays,
+          held),
         [K.ToMa{n, Api.Lookup{K.play.uri(Model.Play{item, secs, fully, True{}, player})}}]}
     : K.Out}
 
@@ -418,8 +426,8 @@ def played.any(as: List<&2, K.Action>) -> Bool:
       Bool.or(played.is(a), played.any(t))
 
 def idle.at(conf: C.Conf, ph: K.Phase, +n: U32, up: Bool, clock: K.Clock, names: T.Names,
-    known: List<&2, K.Known>, +plays: U32) -> K.Core:
-  K.Core{conf, K.Session{ph, n, up}, clock, K.Book{names, known, Nil{}, plays}}
+    known: List<&2, K.Known>, +plays: U32, held: List<&2, K.Pending>) -> K.Core:
+  K.Core{conf, K.Session{ph, n, up}, clock, K.Book{names, known, Nil{}, plays, held}}
 
 # For every core with no play pending, and every input: no play is published (a play comes only
 # out of the book: from a final report, through its lookup).
@@ -431,9 +439,10 @@ law plays_none_from_nowhere_listing:
   for +names: T.Names
   for +known: List<&2, K.Known>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +t: K.Time
   for +ev: K.Input
-  {played.any(K.out.actions(K.step(idle.at(conf, K.Listing{}, n, up, clock, names, known, plays),
+  {played.any(K.out.actions(K.step(idle.at(conf, K.Listing{}, n, up, clock, names, known, plays, held),
       t, ev))) == False{} : Bool}
 
 law plays_none_from_nowhere_live:
@@ -444,7 +453,8 @@ law plays_none_from_nowhere_live:
   for +names: T.Names
   for +known: List<&2, K.Known>
   for +plays: U32
+  for +held: List<&2, K.Pending>
   for +t: K.Time
   for +ev: K.Input
-  {played.any(K.out.actions(K.step(idle.at(conf, K.Live{}, n, up, clock, names, known, plays),
+  {played.any(K.out.actions(K.step(idle.at(conf, K.Live{}, n, up, clock, names, known, plays, held),
       t, ev))) == False{} : Bool}

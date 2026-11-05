@@ -2,6 +2,14 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## 0.2.0 (unreleased)
+
+- Plays survive a reconnect: those still waiting for their lookup when a session ends are looked
+  up again by the next one once it is live (they were lost before). A tick now expires every
+  lookup that waited too long, not just the oldest.
+- A simulator for the core (`bend progs/sim_core.bend`): seeded random sessions with invariants
+  checked after every step; it found the lost plays.
+
 ## 0.1.0 (2026-11-05)
 
 The first release: Music Assistant's players and plays, published to MQTT.

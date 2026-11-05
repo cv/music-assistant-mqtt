@@ -158,7 +158,9 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
   lookup (a report still playing does nothing); the lookup's answer, refusal or expiry publishes
   at most one play and takes it out of the book, so a second answer, or a late one after the
   expiry, publishes nothing; with nothing pending, no input publishes a play. (Left as an
-  assumption: message ids don't wrap within a session, 2^32 lookups.)
+  assumption: message ids don't wrap within a session, 2^32 lookups.) A session that ends leaves
+  its waiting plays to the next (in memory), which looks them up again once live; a tick expires
+  every lookup that waited too long.
 - An ended session does nothing more; a lost link ends the session (offline first when the broker
   still listens); Music Assistant's pings get their pongs; the reconnect waits stay in 1..60 s.
 - The config's summary never shows the token or the password.
@@ -167,6 +169,13 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 ## Testing
 
 - `bend PROOF.bend`: every law (about 16 s).
+- `bend progs/sim_core.bend`: 200 seeded random runs of 400 steps through the core (real JSON
+  through the scanner and model; a tick every second, as the main loop runs them), with
+  invariants checked after every step against the simulation's own record: nothing after the end,
+  nothing early, no play twice or from nowhere, none late (13 s after its final report, or after
+  going live again for a carried one), the broker pinged and its silence noticed, one lookup per
+  final report; and no play lost (published, or still waiting when a run stops). It found that
+  plays waiting for their lookup were lost when a session ended (now carried over).
 - On a Linux host next to Music Assistant: `tools/cross-build.sh mam.bend out/mam`, a throwaway
   broker (`docker run --network host eclipse-mosquitto:2` with a localhost listener), a config
   pointing at both, then `mosquitto_sub -v -t 'music/#'`.
@@ -215,7 +224,7 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 
 - Not proven yet: the scanner's bounds (captures, text, depth) for every input; that every
   pending play is eventually published (each tick publishes the oldest due one).
-- A fake Music Assistant and chaos tests (cuts, stalls, garbage, restarts), and a random-session
-  simulator for the core, as the I/O shell isn't proven.
+- A fake Music Assistant and chaos tests (cuts, stalls, garbage, restarts), as the I/O shell
+  isn't proven.
 - `player_removed`: mark the player unavailable.
 - Home Assistant discovery for the players' states (sensors), optional.

@@ -59,8 +59,11 @@ type Known is Data:
 type Pending is Data:
   Pending{id: U32, play: Model.Play, unix: U32, since: U32}
 
+# held: plays carried from the last session (their lookups never answered), looked up again once
+# this one is live.
 type Book is Data:
-  Book{names: T.Names, known: List<&2, Known>, pending: List<&2, Pending>, plays: U32}
+  Book{names: T.Names, known: List<&2, Known>, pending: List<&2, Pending>, plays: U32,
+    held: List<&2, Pending>}
 
 type Core is Data:
   Core{conf: C.Conf, session: Session, clock: Clock, book: Book}
@@ -140,14 +143,14 @@ def core.plays(c: Core) -> U32:
   match c:
     case Core{_, _, _, b}:
       match b:
-        case Book{_, _, _, n}:
+        case Book{_, _, _, n, _}:
           n
 
 def core.players(c: Core) -> Nat:
   match c:
     case Core{_, _, _, b}:
       match b:
-        case Book{_, known, _, _}:
+        case Book{_, known, _, _, _}:
           List.length(&2, Known, known)
 
 def core.prefix(c: Core) -> String:
@@ -239,12 +242,12 @@ def connect(+conf: C.Conf) -> M.Packet:
   M.Connect{C.mq.client(mq), 60, True{}, login.user(C.mq.user(mq)), login.user(C.mq.password(mq)),
     Some{M.Will{T.topic.status(C.out.prefix(C.conf.out(conf))), B.utf8("offline"), 0, True{}}}}
 
-# A new session: log in to the broker.
-def start(+conf: C.Conf, +t: Time) -> Out:
+# A new session: log in to the broker (held: the plays the last one left waiting).
+def start(+conf: C.Conf, +t: Time, held: List<&2, Pending>) -> Out:
   match t:
     case Time{ms, _}:
       Out{Core{conf, Session{Connecting{}, 3, False{}}, Clock{ms, ms, ms, ms},
-        Book{Nil{}, Nil{}, Nil{}, 0}}, [ToMq{connect(conf)}]}
+        Book{Nil{}, Nil{}, Nil{}, 0, held}}, [ToMq{connect(conf)}]}
 
 # The session ends: say offline and disconnect when the broker still listens, then close.
 def finish(+c: Core, +why: String, connected: Bool) -> Out:
@@ -391,18 +394,19 @@ def publish.if_new(same: Bool, b: Book, +c: Core, +id: B.Bytes, +level: B.Bytes,
       Out{with.book(c, b), Nil{}}
     case False{}:
       match b:
-        case Book{names, known, pending, plays}:
-          Out{with.book(c, Book{names, Known{id, state} <> known.drop(known, id), pending, plays}),
+        case Book{names, known, pending, plays, held}:
+          Out{with.book(c, Book{names, Known{id, state} <> known.drop(known, id), pending, plays,
+            held}),
             [ToMq{M.Publish{False{}, 0, True{}, T.topic.state(core.prefix(c), level), 0, state}}]}
 
 def publish.learned(b: Book, +c: Core, +id: B.Bytes, +p: Model.Player) -> Out:
   match b:
-    case Book{names, +known, pending, plays}:
+    case Book{names, +known, pending, plays, held}:
       +names2 = T.learn(names, id, player.name(p))
       +state = T.state(p)
       +level = level.on(T.level.of(names2, id), id)
       publish.if_new(Bool.or(List.is_empty(&2, U32, level), known.same(known, id, state)),
-        Book{names2, known, pending, plays}, c, id, level, state)
+        Book{names2, known, pending, plays, held}, c, id, level, state)
 
 # A player heard of: learn its name, publish its state if it changed.
 def publish.player(+c: Core, +p: Model.Player) -> Out:
@@ -417,13 +421,6 @@ def players.publish(ps: List<&2, Model.Player>, +c: Core) -> Out:
       +o = publish.player(c, p)
       +rest = players.publish(t, out.core(o))
       Out{out.core(rest), List.append(&2, Action, out.actions(o), out.actions(rest))}
-
-# The player list arrived: live, every player published, online.
-def live(+c: Core, +t: Time, +ps: List<&2, Model.Player>) -> Out:
-  +o = players.publish(ps, with.up(with.phase(c, Live{})))
-  Out{with.report(out.core(o), (time.ms(t) - (report_every() - first_report()) : U32)),
-    Log{"live: " ++ Nat.show(List.length(&2, Model.Player, ps)) ++ " players"}
-      <> status(c, "online") <> out.actions(o)}
 
 # Plays
 # -----
@@ -454,11 +451,12 @@ def pending.id(p: Pending) -> U32:
 # ids after lookup_wait).
 def played.lookup(b: Book, +c: Core, +t: Time, +p: Model.Play) -> Out:
   match b:
-    case Book{names, known, pending, plays}:
+    case Book{names, known, pending, plays, held}:
       match t:
         case Time{ms, unix}:
           +id = core.next(c)
-          Out{with.next(with.book(c, Book{names, known, Pending{id, p, unix, ms} <> pending, plays}),
+          Out{with.next(with.book(c, Book{names, known, Pending{id, p, unix, ms} <> pending, plays,
+            held}),
             (id + 1 : U32)), [ToMa{id, Api.Lookup{play.uri(p)}}]}
 
 def played.if(final: Bool, +c: Core, +t: Time, +p: Model.Play) -> Out:
@@ -491,8 +489,8 @@ def publish.play.acts(names: T.Names, +c: Core, pd: Pending, ids: Model.Ids) -> 
 # A play published, with these ids, and counted (the count doesn't depend on the play).
 def publish.play(b: Book, +c: Core, pd: Pending, ids: Model.Ids) -> Out:
   match b:
-    case Book{+names, known, pending, plays}:
-      Out{with.book(c, Book{names, known, pending, (plays + 1 : U32)}),
+    case Book{+names, known, pending, plays, held}:
+      Out{with.book(c, Book{names, known, pending, (plays + 1 : U32), held}),
         publish.play.acts(names, c, pd, ids)}
 
 # Whether a pending play is the one a reply with these id bytes answers.
@@ -537,8 +535,8 @@ def pending.find(+ps: List<&2, Pending>, +id: B.Bytes, hit: Bool) -> Maybe<&2, P
 # published.
 def answered.take(b: Book, +c: Core, +pd: Pending, +id: B.Bytes, ids: Model.Ids) -> Out:
   match b:
-    case Book{names, known, pending, plays}:
-      publish.play(Book{names, known, pending.drop(pending, id), plays}, c, pd, ids)
+    case Book{names, known, pending, plays, held}:
+      publish.play(Book{names, known, pending.drop(pending, id), plays, held}, c, pd, ids)
 
 def answered.on(m: Maybe<&2, Pending>, +c: Core, +id: B.Bytes, ids: Model.Ids) -> Out:
   match m:
@@ -549,7 +547,7 @@ def answered.on(m: Maybe<&2, Pending>, +c: Core, +id: B.Bytes, ids: Model.Ids) -
 
 def book.pending(b: Book) -> List<&2, Pending>:
   match b:
-    case Book{_, _, p, _}:
+    case Book{_, _, p, _, _}:
       p
 
 # A lookup's answer (or refusal: ids empty) publishes its play.
@@ -559,6 +557,60 @@ def answered(+c: Core, +id: B.Bytes, ids: Model.Ids) -> Out:
 
 def no_ids() -> Model.Ids:
   Model.Ids{Nil{}, Nil{}, Nil{}}
+
+def book.held(b: Book) -> List<&2, Pending>:
+  match b:
+    case Book{_, _, _, _, h}:
+      h
+
+def with.held(c: Core, h: List<&2, Pending>) -> Core:
+  match c:
+    case Core{conf, s, k, b}:
+      match b:
+        case Book{names, known, pending, plays, _}:
+          Core{conf, s, k, Book{names, known, pending, plays, h}}
+
+# What a session that ends now leaves waiting: its pending plays, and those still held.
+def core.left(c: Core) -> List<&2, Pending>:
+  match c:
+    case Core{_, _, _, b}:
+      match b:
+        case Book{_, _, pending, _, held}:
+          List.append(&2, Pending, pending, held)
+
+# Carried plays
+# -------------
+
+def relook.add(b: Book, +c: Core, +play: Model.Play, +unix: U32, +ms: U32) -> Out:
+  match b:
+    case Book{names, known, pending, plays, held}:
+      +id = core.next(c)
+      Out{with.next(with.book(c, Book{names, known, Pending{id, play, unix, ms} <> pending, plays,
+        held}), (id + 1 : U32)), [ToMa{id, Api.Lookup{play.uri(play)}}]}
+
+def relook.one(h: Pending, +c: Core, +ms: U32) -> Out:
+  match h:
+    case Pending{_, +play, +unix, _}:
+      relook.add(core.book(c), c, play, unix, ms)
+
+# The plays carried from the last session, looked up again under new ids (pending from now on,
+# with the time they were heard).
+def relook(hs: List<&2, Pending>, +c: Core, +ms: U32) -> Out:
+  match hs:
+    case Nil{}:
+      Out{c, Nil{}}
+    case h <> t:
+      +o = relook.one(h, c, ms)
+      +rest = relook(t, out.core(o), ms)
+      Out{out.core(rest), List.append(&2, Action, out.actions(o), out.actions(rest))}
+
+# The player list arrived: live, every player published, online; the carried plays looked up.
+def live(+c: Core, +t: Time, +ps: List<&2, Model.Player>) -> Out:
+  +o = players.publish(ps, with.up(with.phase(c, Live{})))
+  +r = relook(book.held(core.book(out.core(o))), with.held(out.core(o), Nil{}), time.ms(t))
+  Out{with.report(out.core(r), (time.ms(t) - (report_every() - first_report()) : U32)),
+    Log{"live: " ++ Nat.show(List.length(&2, Model.Player, ps)) ++ " players"}
+      <> status(c, "online") <> List.append(&2, Action, out.actions(o), out.actions(r))}
 
 # Music Assistant
 # ---------------
@@ -753,10 +805,26 @@ def expire.on(m: Maybe<&2, Pending>, +c: Core) -> Out:
     case Some{+pd}:
       answered.take(core.book(c), c, pd, B.utf8(U32.show(pending.id(pd))), no_ids())
 
+# Every lookup that waited too long, one after the other (fuel: one more than the plays pending;
+# each one taken out leaves fewer).
+def expire.all(fuel: Nat, m: Maybe<&2, Pending>, +c: Core, +now: U32) -> Out:
+  match fuel:
+    case 0n:
+      Out{c, Nil{}}
+    case 1n+f:
+      match m:
+        case None{}:
+          Out{c, Nil{}}
+        case Some{+pd}:
+          +o = expire.on(Some{pd}, c)
+          +rest = expire.all(f, expired(book.pending(core.book(out.core(o))), now), out.core(o), now)
+          Out{out.core(rest), List.append(&2, Action, out.actions(o), out.actions(rest))}
+
 def routine.expire(live: Bool, +c: Core, +now: U32) -> Out:
   match live:
     case True{}:
-      expire.on(expired(book.pending(core.book(c)), now), c)
+      +ps = book.pending(core.book(c))
+      expire.all(1n+List.length(&2, Pending, ps), expired(ps, now), c, now)
     case False{}:
       Out{c, Nil{}}
 
