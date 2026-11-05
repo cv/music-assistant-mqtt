@@ -74,7 +74,7 @@ lib/
 Dockerfile  the image: bend's C cross-compiled by zig into one static binary, FROM scratch
 .github/    ci.yml (laws, build on every push), release.yml (v* tags: images to ghcr.io)
 tools/      cross-build.sh (a static linux binary of any program, for tests), deploy.sh (runs a
-            release image on a host with compose)
+            release image on a host with compose), fakema.py (a fake Music Assistant), chaos.py
 deploy/     an example compose.yaml (the release image), the config example
 ```
 
@@ -176,6 +176,15 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
   going live again for a carried one), the broker pinged and its silence noticed, one lookup per
   final report; and no play lost (published, or still waiting when a run stops). It found that
   plays waiting for their lookup were lost when a session ended (now carried over).
+- `tools/chaos.py [--build] [scenario ...]` (about 6 minutes): the program built for this machine
+  against a fake Music Assistant (`tools/fakema.py`: the websocket handshake and frames, auth,
+  players, lookups, events, pings, split frames, garbage on command) and a test broker, both
+  behind proxies that cut, stall and fragment. Scenarios: broker restart and cut, Music
+  Assistant dropped, a play waiting for its lookup at the cut (published once, with its ids, by
+  the next session), garbage, split and byte-by-byte frames, a refused token (waits doubling),
+  15 reconnects (memory and open files flat), Music Assistant and broker silent (noticed after
+  60 s and 90 s); after each, live again and every final report published exactly once. All
+  pass (2026-11-05). Runs on macOS: everything is on 127.0.0.1.
 - On a Linux host next to Music Assistant: `tools/cross-build.sh mam.bend out/mam`, a throwaway
   broker (`docker run --network host eclipse-mosquitto:2` with a localhost listener), a config
   pointing at both, then `mosquitto_sub -v -t 'music/#'`.
@@ -224,7 +233,5 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 
 - Not proven yet: the scanner's bounds (captures, text, depth) for every input; that every
   pending play is eventually published (each tick publishes the oldest due one).
-- A fake Music Assistant and chaos tests (cuts, stalls, garbage, restarts), as the I/O shell
-  isn't proven.
 - `player_removed`: mark the player unavailable.
 - Home Assistant discovery for the players' states (sensors), optional.
