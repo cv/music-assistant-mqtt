@@ -286,6 +286,61 @@ def play(+caps: Caps) -> Play:
     number.of(field(caps, d, "seconds_played")), flag.of(field(caps, d, "fully_played")),
     Bool.not(flag.of(field(caps, d, "is_playing"))), text.of(field(caps, d, "player_id"))}
 
+# Queues
+# ------
+
+# Where a queue stands: its id (a player's), the current item's index, how many items it has.
+type Queue is Data:
+  Queue{id: B.Bytes, index: U32, count: U32}
+
+# A queue item: its id (to play it), "Artist - Title" as Music Assistant names it, its length (s),
+# its uri.
+type Item is Data:
+  Item{id: B.Bytes, name: B.Bytes, duration: U32, uri: B.Bytes}
+
+def queue(+caps: Caps, +prefix: List<&2, J.Seg>) -> Queue:
+  Queue{text.of(field(caps, prefix, "queue_id")), number.of(field(caps, prefix, "current_index")),
+    number.of(field(caps, prefix, "items"))}
+
+def queues.loop(fuel: Nat, +caps: Caps, +i: U32, found: Bool) -> List<&2, Queue>:
+  match fuel:
+    case 0n:
+      Nil{}
+    case 1n+f:
+      match found:
+        case False{}:
+          Nil{}
+        case True{}:
+          queue(caps, list.at(i))
+            <> queues.loop(f, caps, (i + 1 : U32),
+                 is_some(field(caps, list.at((i + 1 : U32)), "queue_id")))
+
+# The queues of a player_queues/all reply, in order (at most 256).
+def queues(+caps: Caps) -> List<&2, Queue>:
+  queues.loop(256n, caps, 0, is_some(field(caps, list.at(0), "queue_id")))
+
+def item(+caps: Caps, +prefix: List<&2, J.Seg>) -> Item:
+  Item{text.of(field(caps, prefix, "queue_item_id")), text.of(field(caps, prefix, "name")),
+    number.of(field(caps, prefix, "duration")),
+    text.of(field(caps, List.append(&2, J.Seg, prefix, [key("media_item")]), "uri"))}
+
+def items.loop(fuel: Nat, +caps: Caps, +i: U32, found: Bool) -> List<&2, Item>:
+  match fuel:
+    case 0n:
+      Nil{}
+    case 1n+f:
+      match found:
+        case False{}:
+          Nil{}
+        case True{}:
+          item(caps, list.at(i))
+            <> items.loop(f, caps, (i + 1 : U32),
+                 is_some(field(caps, list.at((i + 1 : U32)), "queue_item_id")))
+
+# The items of a player_queues/items reply, in order (at most 64).
+def items(+caps: Caps) -> List<&2, Item>:
+  items.loop(64n, caps, 0, is_some(field(caps, list.at(0), "queue_item_id")))
+
 # Catalog ids
 # -----------
 

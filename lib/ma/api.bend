@@ -1,15 +1,18 @@
 import Base
 import ../wire/bytes.bend as B
 import ../wire/json.bend as J
-# Music Assistant's websocket API as far as the bridge uses it: the three commands it sends (log
-# in, list the players, look an item up in the library: nothing that controls a player) and the
-# paths it keeps of what the server sends (Api.wants). What those values mean is model.bend.
+# Music Assistant's websocket API as far as the bridge uses it: the commands it sends (log in, list
+# the players, look an item up in the library, list the queues, read a queue's items: all reads,
+# nothing that controls a player) and the paths it keeps of what the server sends (Api.wants).
+# What those values mean is model.bend.
 
 # A command to the server.
 type Command is Data:
   Login{token: String}
   ListPlayers{}
   Lookup{uri: B.Bytes}
+  ListQueues{}
+  QueueItems{queue: B.Bytes, offset: U32, limit: U32}
 
 def command.name(c: Command) -> String:
   match c:
@@ -19,6 +22,10 @@ def command.name(c: Command) -> String:
       "players/all"
     case Lookup{_}:
       "music/item_by_uri"
+    case ListQueues{}:
+      "player_queues/all"
+    case QueueItems{_, _, _}:
+      "player_queues/items"
 
 def command.args(c: Command) -> List<&2, J.Field>:
   match c:
@@ -28,6 +35,11 @@ def command.args(c: Command) -> List<&2, J.Field>:
       Nil{}
     case Lookup{uri}:
       [J.Field{"uri", J.string(uri)}]
+    case ListQueues{}:
+      Nil{}
+    case QueueItems{queue, offset, limit}:
+      [J.Field{"queue_id", J.string(queue)}, J.Field{"limit", J.number(limit)},
+       J.Field{"offset", J.number(offset)}]
 
 # A command as sent: its message id (the server answers with it, as a string), name and arguments.
 def encode(+id: U32, +c: Command) -> B.Bytes:
@@ -63,6 +75,14 @@ def play_fields() -> List<&2, String>:
   ["uri", "name", "artist", "album", "duration", "seconds_played", "fully_played", "is_playing",
    "player_id"]
 
+# Where a queue stands (in player_queues/all's list and in queue_updated events).
+def queue_fields() -> List<&2, String>:
+  ["queue_id", "current_index", "items"]
+
+# A queue item (player_queues/items' list): its id, "Artist - Title", its length.
+def item_fields() -> List<&2, String>:
+  ["queue_item_id", "name", "duration"]
+
 # Every path the bridge keeps; everything else is scanned and dropped (device details, MAC and IP
 # addresses, artwork, metadata: none of it is wanted, so none of it can be published).
 def wants() -> J.Wants:
@@ -74,4 +94,7 @@ def wants() -> J.Wants:
     paths([k("result"), J.PAny{}], player_fields()),
     paths([k("result"), J.PAny{}, k("current_media")], media_fields()),
     paths([k("data")], List.append(&2, String, player_fields(), play_fields())),
-    paths([k("data"), k("current_media")], media_fields())])
+    paths([k("data"), k("current_media")], media_fields()),
+    paths([k("result"), J.PAny{}], List.append(&2, String, queue_fields(), item_fields())),
+    paths([k("result"), J.PAny{}, k("media_item")], ["uri"]),
+    paths([k("data")], queue_fields())])
