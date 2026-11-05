@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Every law must check, and the program must build (the image, for amd64).
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Bend
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install bend
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Laws
+        run: |
+          bend PROOF.bend | tee proof.txt
+          grep -q "ALL PROOFS CHECK" proof.txt
+
+      - name: C
+        run: mkdir -p out && bend mam.bend -o out/mam.c
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

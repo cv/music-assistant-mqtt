@@ -71,8 +71,11 @@ lib/
     readers.bend one reader per socket (broker, Music Assistant) feeding one channel
     main.bend    a session: connect, then carry out the core's actions until it ends (sends,
                  opening Music Assistant's link, the plays file, health reports, the log)
-tools/      cross-build.sh (linux/arm64 in Docker), deploy.sh (build, copy, compose up on a host)
-deploy/     Dockerfile (distroless), an example compose.yaml, the config example
+Dockerfile  the image: bend's C cross-compiled by zig into one static binary, FROM scratch
+.github/    ci.yml (laws, build on every push), release.yml (v* tags: images to ghcr.io)
+tools/      cross-build.sh (a static linux binary of any program, for tests), deploy.sh (runs a
+            release image on a host with compose)
+deploy/     an example compose.yaml (the release image), the config example
 ```
 
 ## How it works
@@ -216,4 +219,3 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
   simulator for the core, as the I/O shell isn't proven.
 - `player_removed`: mark the player unavailable.
 - Home Assistant discovery for the players' states (sensors), optional.
-- Releases: an image built by CI (linux/arm64 and amd64).

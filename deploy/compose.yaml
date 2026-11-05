@@ -1,11 +1,10 @@
 # An example compose file: next to Music Assistant (host network, so 127.0.0.1:8095 reaches it).
-# tools/deploy.sh puts it, the Dockerfile and the binary in ~/music-assistant-mqtt on the host;
+# tools/deploy.sh HOST VERSION puts it in ~/music-assistant-mqtt on the host with that version;
 # the config (music-assistant-mqtt.conf, 0600) is yours to write there (see the example).
 services:
   music-assistant-mqtt:
     container_name: music-assistant-mqtt
-    build: .
-    image: music-assistant-mqtt:local
+    image: ghcr.io/cv/music-assistant-mqtt:@VERSION@
     # The config's owner (it is 0600); the image's own user couldn't read it.
     user: "1000:1000"
     network_mode: host

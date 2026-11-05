@@ -27,7 +27,8 @@ lookups, never a command that controls a player.
 
 ## Running it
 
-It runs as a container beside Music Assistant (host network). Make a long-lived token in Music
+It runs as a container beside Music Assistant (host network): `ghcr.io/cv/music-assistant-mqtt`, for
+linux/amd64 and linux/arm64, one static binary in an otherwise empty image (under 1 MB). Make a long-lived token in Music
 Assistant's UI and an MQTT login that may write `music/#`, then write the config (keep it
 `0600`):
 
@@ -42,11 +43,12 @@ plays_file /data/plays.jsonl
 ```
 
 All the keys are in [`deploy/music-assistant-mqtt.conf.example`](deploy/music-assistant-mqtt.conf.example).
-`tools/deploy.sh HOST` builds the linux/arm64 binary and starts it there with
+`tools/deploy.sh HOST VERSION` starts that release there with
 [`deploy/compose.yaml`](deploy/compose.yaml): about 1 MB of memory, two threads.
 
-Building needs [Bend](https://github.com/HigherOrderCO/bend) and Docker (for the cross-compile):
-`tools/cross-build.sh mam.bend out/mam`.
+Building it yourself needs [Bend](https://github.com/HigherOrderCO/bend) and Docker:
+`bend mam.bend -o out/mam.c && docker build -t music-assistant-mqtt .` (the C is portable; zig
+cross-compiles it, statically, for the target).
 
 ## How it is made
 
