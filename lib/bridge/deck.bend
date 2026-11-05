@@ -12,9 +12,9 @@ import ../ma/model.bend as Model
 def window() -> Nat:
   5n
 
-# A play as the window shows it.
+# A play as the window shows it (uri: to play it again).
 type Heard is Data:
-  Heard{artist: B.Bytes, title: B.Bytes, duration: U32, seconds: U32}
+  Heard{artist: B.Bytes, title: B.Bytes, duration: U32, seconds: U32, uri: B.Bytes}
 
 # A player's last plays, newest first (at most window()).
 type Recent is Data:
@@ -392,11 +392,11 @@ def played(p: Model.Play, d: Deck, +next: U32) -> Did:
   match p:
     case Model.Play{+item, +seconds, _, _, +player}:
       match item:
-        case Model.Media{_, +title, +artist, _, +duration}:
+        case Model.Media{+uri, +title, +artist, _, +duration}:
           match d:
             case Deck{+ss, +as, +r, +l}:
               Did{Deck{ss, as, Recent{player, List.take(&2, Heard, Heard{artist, title, duration,
-                  seconds} <> recent.heard(recent.find(r, player)), window())}
+                  seconds, uri} <> recent.heard(recent.find(r, player)), window())}
                   <> recent.drop(r, player), l},
                 next, Nil{}, [player]}
 
@@ -405,9 +405,10 @@ def played(p: Model.Play, d: Deck, +next: U32) -> Did:
 
 def heard.json(h: Heard) -> B.Bytes:
   match h:
-    case Heard{+a, +t, +d, +s}:
+    case Heard{+a, +t, +d, +s, +u}:
       J.object([J.Field{"artist", J.string(a)}, J.Field{"title", J.string(t)},
-        J.Field{"duration", J.number(d)}, J.Field{"seconds", J.number(s)}])
+        J.Field{"duration", J.number(d)}, J.Field{"seconds", J.number(s)},
+        J.Field{"uri", J.string(u)}])
 
 def heard.all(hs: List<&2, Heard>) -> List<&2, B.Bytes>:
   match hs:

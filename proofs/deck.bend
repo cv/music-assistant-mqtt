@@ -33,16 +33,16 @@ def Ld.deck_previous_bounded(p, d, n):
   match p:
     case Model.Play{item, +seconds, _, _, +player}:
       match item:
-        case Model.Media{_, +title, +artist, _, +duration}:
+        case Model.Media{+uri, +title, +artist, _, +duration}:
           match d:
             case D.Deck{ss, as, +r, l}:
               %Equal.sym(Bool, B.beq(player, player), True{}, Pc.beq_refl(player)) :
                 {Nat.is_le(List.length(&2, D.Heard, D.recent.heard(D.recent.find.if(_,
                     D.Recent{player, List.take(&2, D.Heard, D.Heard{artist, title, duration,
-                      seconds} <> D.recent.heard(D.recent.find(r, player)), D.window())},
+                      seconds, uri} <> D.recent.heard(D.recent.find(r, player)), D.window())},
                     D.recent.find(D.recent.drop(r, player), player)))), D.window())
                   == True{} : Bool}
-              take_le(D.Heard, D.Heard{artist, title, duration, seconds}
+              take_le(D.Heard, D.Heard{artist, title, duration, seconds, uri}
                 <> D.recent.heard(D.recent.find(r, player)), D.window())
 
 def Ld.deck_unchanged_asks_nothing(q, i, c, next, ss, as, r, l, n):

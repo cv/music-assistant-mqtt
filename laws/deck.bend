@@ -155,12 +155,12 @@ law top_session:
      "ma {\"message_id\":\"3\",\"command\":\"music/item_by_uri\",\"args\":{\""
        ++ "uri\":\"library://track/1\"}} | pub music/living_room/queue {\"previou"
        ++ "s\":[{\"artist\":\"Band\",\"title\":\"Song\",\"duration\":200,\"second"
-       ++ "s\":12}],\"next\":[{\"id\":\"0000000000000000000000000000016e\",\"name"
-       ++ "\":\"Celso Fonseca - Bom Sinal\",\"duration\":310,\"uri\":\"library://"
-       ++ "track/1125\"},{\"id\":\"0000000000000000000000000000018f\",\"name\":\""
-       ++ "Vulfpeck - Welcome to Vulf Records\",\"duration\":163,\"uri\":\"librar"
-       ++ "y://track/10648\"}],\"queue\":\"RINCON_000000000001400\",\"index\":243"
-       ++ "} | "]
+       ++ "s\":12,\"uri\":\"library://track/1\"}],\"next\":[{\"id\":\"00000000000"
+       ++ "00000000000000000016e\",\"name\":\"Celso Fonseca - Bom Sinal\",\"durat"
+       ++ "ion\":310,\"uri\":\"library://track/1125\"},{\"id\":\"0000000000000000"
+       ++ "000000000000018f\",\"name\":\"Vulfpeck - Welcome to Vulf Records\",\"d"
+       ++ "uration\":163,\"uri\":\"library://track/10648\"}],\"queue\":\"RINCON_0"
+       ++ "00000000001400\",\"index\":243} | "]
     : List<&2, String>}
 
 def heard.count(d: D.Deck, +player: B.Bytes) -> Nat:
