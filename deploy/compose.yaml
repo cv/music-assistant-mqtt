@@ -1,0 +1,20 @@
+# An example compose file: next to Music Assistant (host network, so 127.0.0.1:8095 reaches it).
+# tools/deploy.sh puts it, the Dockerfile and the binary in ~/music-assistant-mqtt on the host;
+# the config (music-assistant-mqtt.conf, 0600) is yours to write there (see the example).
+services:
+  music-assistant-mqtt:
+    container_name: music-assistant-mqtt
+    build: .
+    image: music-assistant-mqtt:local
+    # The config's owner (it is 0600); the image's own user couldn't read it.
+    user: "1000:1000"
+    network_mode: host
+    volumes:
+      - ./music-assistant-mqtt.conf:/etc/music-assistant-mqtt.conf:ro
+      - ./data:/data
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    pids_limit: 64

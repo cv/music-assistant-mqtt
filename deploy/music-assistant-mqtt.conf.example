@@ -1,0 +1,15 @@
+# music-assistant-mqtt's config: one "key value" per line, # comments. Keep it 0600: it holds
+# the token and the broker password.
+
+ma_host 127.0.0.1          # Music Assistant (its websocket API on ma_port)
+ma_port 8095
+ma_token <a long-lived token made in Music Assistant's UI>
+
+mqtt_host broker.local     # required
+mqtt_port 1883
+mqtt_user music
+mqtt_password <the rest of the line, spaces and # included>
+
+topic_prefix music         # topics under music/
+client_id music-assistant-mqtt
+plays_file /data/plays.jsonl   # or off
