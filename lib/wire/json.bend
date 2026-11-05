@@ -39,12 +39,12 @@ type Cap is Data:
 # ------
 
 # Containers nest at most this deep; deeper is broken.
-def max_depth() -> U32:
-  64
+def max_depth() -> Nat:
+  64n
 
 # At most this many values are kept from a document; later ones are dropped.
-def max_caps() -> U32:
-  256
+def max_caps() -> Nat:
+  256n
 
 # A kept string (or a key) keeps this many bytes; the rest are dropped.
 def max_text() -> U32:
@@ -95,17 +95,62 @@ type Mode is Data:
   # the document broke JSON's rules; nothing more is read
   Broken{why: String}
 
-# The scanner: what it expects, the open containers and how many, the values kept (newest first)
-# and how many.
+# The open containers (innermost first) and how many more may open: frames + room = max_depth.
+type Stack is Data:
+  Stack{frames: List<&2, Frame>, room: Nat}
+
+# The values kept (newest first) and how many more may be: caps + room = max_caps.
+type Kept is Data:
+  Kept{caps: List<&2, Cap>, room: Nat}
+
+# The scanner: what it expects, the open containers, the values kept. The containers and the
+# values change only in land (below), which opens a container or keeps a value only while there
+# is room: the laws prove both limits for every input.
 type Scan is Data:
-  Scan{mode: Mode, stack: List<&2, Frame>, depth: U32, caps: List<&2, Cap>, ncaps: U32}
+  Scan{mode: Mode, stack: Stack, kept: Kept}
+
+def stack.empty() -> Stack:
+  Stack{Nil{}, max_depth()}
+
+def kept.empty() -> Kept:
+  Kept{Nil{}, max_caps()}
 
 # A scanner before a document.
 def start() -> Scan:
-  Scan{Value{}, Nil{}, 0, Nil{}, 0}
+  Scan{Value{}, stack.empty(), kept.empty()}
 
 def broken(why: String) -> Scan:
-  Scan{Broken{why}, Nil{}, 0, Nil{}, 0}
+  Scan{Broken{why}, stack.empty(), kept.empty()}
+
+def scan.stack(s: Scan) -> Stack:
+  match s:
+    case Scan{_, st, _}:
+      st
+
+def scan.kept(s: Scan) -> Kept:
+  match s:
+    case Scan{_, _, k}:
+      k
+
+def stack.frames(st: Stack) -> List<&2, Frame>:
+  match st:
+    case Stack{fs, _}:
+      fs
+
+def stack.room(st: Stack) -> Nat:
+  match st:
+    case Stack{_, r}:
+      r
+
+def kept.caps(k: Kept) -> List<&2, Cap>:
+  match k:
+    case Kept{cs, _}:
+      cs
+
+def kept.room(k: Kept) -> Nat:
+  match k:
+    case Kept{_, r}:
+      r
 
 # Wanted paths
 # ------------
@@ -235,12 +280,104 @@ def caps.ok(+ws: Wants, m: Maybe<&2, List<&2, Cap>>) -> Bool:
 # The values a whole document kept, in order; None when it broke or isn't whole.
 def finished(+ws: Wants, s: Scan) -> Maybe<&2, List<&2, Cap>>:
   match s:
-    case Scan{mode, _, _, caps, _}:
+    case Scan{mode, _, k}:
       match mode:
         case Whole{}:
-          Some{guard(ws, List.reverse(&2, Cap, caps))}
+          Some{guard(ws, List.reverse(&2, Cap, kept.caps(k)))}
         case _:
           None{}
+
+# The step
+# --------
+# A byte is read in two parts: move says what it does (from the mode and the open containers),
+# land carries it out on the containers and the kept values, within their room.
+
+# What a byte does to the open containers: nothing, open one, close the innermost, or replace
+# the innermost (its next key or index).
+type Op is Data:
+  Stay{}
+  Push{f: Frame}
+  Pop{}
+  Top{f: Frame}
+
+# A byte's effect: the next mode, what happens to the containers and a value to keep (when there
+# is room); or the document breaks.
+type Move is Data:
+  Goes{mode: Mode, op: Op, cap: Maybe<&2, Cap>}
+  Breaks{why: String}
+
+def same(m: Mode) -> Move:
+  Goes{m, Stay{}, None{}}
+
+def stack.push(st: Stack, f: Frame, m: Mode, k: Kept) -> Scan:
+  match st:
+    case Stack{fs, room}:
+      match room:
+        case 0n:
+          broken("nested deeper than 64")
+        case 1n+r:
+          Scan{m, Stack{f <> fs, r}, k}
+
+def stack.pop(st: Stack) -> Stack:
+  match st:
+    case Stack{fs, room}:
+      match fs:
+        case Nil{}:
+          Stack{Nil{}, room}
+        case _ <> rest:
+          Stack{rest, 1n+room}
+
+def stack.top(st: Stack, f: Frame) -> Stack:
+  match st:
+    case Stack{fs, room}:
+      match fs:
+        case Nil{}:
+          Stack{Nil{}, room}
+        case _ <> rest:
+          Stack{f <> rest, room}
+
+# A value kept, while there is room (later ones are dropped).
+def kept.add(cap: Maybe<&2, Cap>, k: Kept) -> Kept:
+  match cap:
+    case None{}:
+      k
+    case Some{c}:
+      match k:
+        case Kept{cs, room}:
+          match room:
+            case 0n:
+              Kept{cs, 0n}
+            case 1n+r:
+              Kept{c <> cs, r}
+
+def land.op(op: Op, m: Mode, st: Stack, k: Kept) -> Scan:
+  match op:
+    case Stay{}:
+      Scan{m, st, k}
+    case Push{f}:
+      stack.push(st, f, m, k)
+    case Pop{}:
+      Scan{m, stack.pop(st), k}
+    case Top{f}:
+      Scan{m, stack.top(st, f), k}
+
+# A move carried out: the only place the containers and the kept values change.
+def land(st: Stack, k: Kept, mv: Move) -> Scan:
+  match mv:
+    case Breaks{why}:
+      broken(why)
+    case Goes{m, op, cap}:
+      land.op(op, m, st, kept.add(cap, k))
+
+# Whether no more containers may open.
+def stack.full(st: Stack) -> Bool:
+  match st:
+    case Stack{_, room}:
+      match room:
+        case 0n:
+          True{}
+        case 1n+_:
+          False{}
 
 # Values and containers
 # ---------------------
@@ -253,77 +390,67 @@ def after.mode(+stack: List<&2, Frame>) -> Mode:
     case _:
       After{}
 
-def value.if_taken(taken: Bool, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>,
-    +ncaps: U32, v: Val) -> Scan:
-  match taken:
+def keep.if(keep: Bool, +stack: List<&2, Frame>, v: Val) -> Maybe<&2, Cap>:
+  match keep:
     case True{}:
-      Scan{after.mode(stack), stack, depth, Cap{path(stack), v} <> caps, (ncaps + 1 : U32)}
+      Some{Cap{path(stack), v}}
     case False{}:
-      Scan{after.mode(stack), stack, depth, caps, ncaps}
+      None{}
 
-# A scalar value ended; kept when keep and there is room.
-def value(keep: Bool, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32,
-    v: Val) -> Scan:
-  value.if_taken(Bool.and(keep, (ncaps < max_caps() : U32)), stack, depth, caps, ncaps, v)
-
-def open.if_deep(deep: Bool, f: Frame, m: Mode, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
-  match deep:
-    case True{}:
-      broken("nested deeper than 64")
-    case False{}:
-      Scan{m, f <> stack, (depth + 1 : U32), caps, ncaps}
+# A scalar value ended; kept when keep (and land finds room).
+def value(keep: Bool, +stack: List<&2, Frame>, v: Val) -> Move:
+  Goes{after.mode(stack), Stay{}, keep.if(keep, stack, v)}
 
 # A container opens: its frame goes on the stack, and m is what it expects first.
-def open(f: Frame, m: Mode, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>,
-    +ncaps: U32) -> Scan:
-  open.if_deep((depth >= max_depth() : U32), f, m, stack, depth, caps, ncaps)
+def open(f: Frame, m: Mode, deep: Bool) -> Move:
+  match deep:
+    case True{}:
+      Breaks{"nested deeper than 64"}
+    case False{}:
+      Goes{m, Push{f}, None{}}
 
-def close.on(top: Frame, object: Bool, +rest: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>,
-    +ncaps: U32) -> Scan:
+def close.on(top: Frame, object: Bool, +rest: List<&2, Frame>) -> Move:
   match top:
     case InObj{_}:
       match object:
         case True{}:
-          Scan{after.mode(rest), rest, (depth - 1 : U32), caps, ncaps}
+          Goes{after.mode(rest), Pop{}, None{}}
         case False{}:
-          broken("] closing an object")
+          Breaks{"] closing an object"}
     case InArr{_}:
       match object:
         case True{}:
-          broken("} closing an array")
+          Breaks{"} closing an array"}
         case False{}:
-          Scan{after.mode(rest), rest, (depth - 1 : U32), caps, ncaps}
+          Goes{after.mode(rest), Pop{}, None{}}
 
 # A container closes (an object when object, else an array).
-def close(object: Bool, stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32)
-    -> Scan:
+def close(object: Bool, stack: List<&2, Frame>) -> Move:
   match stack:
     case Nil{}:
-      broken("a close outside any container")
+      Breaks{"a close outside any container"}
     case top <> rest:
-      close.on(top, object, rest, depth, caps, ncaps)
+      close.on(top, object, rest)
 
 # A comma: an object's next key, an array's next index.
-def comma(stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def comma(stack: List<&2, Frame>) -> Move:
   match stack:
     case Nil{}:
-      broken("a comma outside any container")
-    case top <> rest:
+      Breaks{"a comma outside any container"}
+    case top <> _:
       match top:
         case InObj{_}:
-          Scan{KeyNext{}, InObj{Nil{}} <> rest, depth, caps, ncaps}
+          Goes{KeyNext{}, Top{InObj{Nil{}}}, None{}}
         case InArr{i}:
-          Scan{Value{}, InArr{(i + 1 : U32)} <> rest, depth, caps, ncaps}
+          Goes{Value{}, Top{InArr{(i + 1 : U32)}}, None{}}
 
 # A key ended: it names the value that follows.
-def named(name: B.Bytes, stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32)
-    -> Scan:
+def named(name: B.Bytes, stack: List<&2, Frame>) -> Move:
   match stack:
     case Nil{}:
-      broken("a key outside an object")
-    case _ <> rest:
-      Scan{Colon{}, InObj{name} <> rest, depth, caps, ncaps}
+      Breaks{"a key outside an object"}
+    case _ <> _:
+      Goes{Colon{}, Top{InObj{name}}, None{}}
 
 # Structure
 # ---------
@@ -400,87 +527,86 @@ def classify(b: U32) -> Ch:
       OtherCh{}
 
 # A value begins (m: the mode to stay in on a space).
-def begin(+ws: Wants, ch: Ch, +b: U32, m: Mode, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def begin(+ws: Wants, ch: Ch, +b: U32, m: Mode, +stack: List<&2, Frame>, deep: Bool) -> Move:
   match ch:
     case Space{}:
-      Scan{m, stack, depth, caps, ncaps}
+      same(m)
     case LBrace{}:
-      open(InObj{Nil{}}, KeyOrEnd{}, stack, depth, caps, ncaps)
+      open(InObj{Nil{}}, KeyOrEnd{}, deep)
     case LBracket{}:
-      open(InArr{0}, ArrStart{}, stack, depth, caps, ncaps)
+      open(InArr{0}, ArrStart{}, deep)
     case Quote{}:
-      Scan{InString{Txt{False{}, wanted(ws, stack), Nil{}, 0, 0}}, stack, depth, caps, ncaps}
+      same(InString{Txt{False{}, wanted(ws, stack), Nil{}, 0, 0}})
     case NumCh{}:
-      Scan{InNumber{[b], 1}, stack, depth, caps, ncaps}
+      same(InNumber{[b], 1})
     case TCh{}:
-      Scan{InWord{[114, 117, 101], Yes{}}, stack, depth, caps, ncaps}
+      same(InWord{[114, 117, 101], Yes{}})
     case FCh{}:
-      Scan{InWord{[97, 108, 115, 101], No{}}, stack, depth, caps, ncaps}
+      same(InWord{[97, 108, 115, 101], No{}})
     case NCh{}:
-      Scan{InWord{[117, 108, 108], Null{}}, stack, depth, caps, ncaps}
+      same(InWord{[117, 108, 108], Null{}})
     case _:
-      broken("unexpected byte " ++ U32.show(b))
+      Breaks{"unexpected byte " ++ U32.show(b)}
 
 def key.text() -> Mode:
   InString{Txt{True{}, False{}, Nil{}, 0, 0}}
 
 # A byte where structure is expected (m: the mode, which isn't inside a token).
-def structural(+ws: Wants, m: Mode, ch: Ch, +b: U32, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def structural(+ws: Wants, m: Mode, ch: Ch, +b: U32, +stack: List<&2, Frame>, deep: Bool)
+    -> Move:
   match m:
     case ArrStart{}:
       match ch:
         case RBracket{}:
-          close(False{}, stack, depth, caps, ncaps)
+          close(False{}, stack)
         case other:
-          begin(ws, other, b, ArrStart{}, stack, depth, caps, ncaps)
+          begin(ws, other, b, ArrStart{}, stack, deep)
     case KeyOrEnd{}:
       match ch:
         case Space{}:
-          Scan{KeyOrEnd{}, stack, depth, caps, ncaps}
+          same(KeyOrEnd{})
         case Quote{}:
-          Scan{key.text(), stack, depth, caps, ncaps}
+          same(key.text())
         case RBrace{}:
-          close(True{}, stack, depth, caps, ncaps)
+          close(True{}, stack)
         case _:
-          broken("expected a key or }")
+          Breaks{"expected a key or }"}
     case KeyNext{}:
       match ch:
         case Space{}:
-          Scan{KeyNext{}, stack, depth, caps, ncaps}
+          same(KeyNext{})
         case Quote{}:
-          Scan{key.text(), stack, depth, caps, ncaps}
+          same(key.text())
         case _:
-          broken("expected a key")
+          Breaks{"expected a key"}
     case Colon{}:
       match ch:
         case Space{}:
-          Scan{Colon{}, stack, depth, caps, ncaps}
+          same(Colon{})
         case ColonCh{}:
-          Scan{Value{}, stack, depth, caps, ncaps}
+          same(Value{})
         case _:
-          broken("expected a colon")
+          Breaks{"expected a colon"}
     case After{}:
       match ch:
         case Space{}:
-          Scan{After{}, stack, depth, caps, ncaps}
+          same(After{})
         case CommaCh{}:
-          comma(stack, depth, caps, ncaps)
+          comma(stack)
         case RBrace{}:
-          close(True{}, stack, depth, caps, ncaps)
+          close(True{}, stack)
         case RBracket{}:
-          close(False{}, stack, depth, caps, ncaps)
+          close(False{}, stack)
         case _:
-          broken("expected a comma or a close")
+          Breaks{"expected a comma or a close"}
     case Whole{}:
       match ch:
         case Space{}:
-          Scan{Whole{}, stack, depth, caps, ncaps}
+          same(Whole{})
         case _:
-          broken("bytes after the document")
+          Breaks{"bytes after the document"}
     case _:
-      begin(ws, ch, b, Value{}, stack, depth, caps, ncaps)
+      begin(ws, ch, b, Value{}, stack, deep)
 
 # Strings
 # -------
@@ -605,90 +731,80 @@ def hex.value.if_range(digit: Bool, lower: Bool, upper: Bool, +b: U32) -> U32:
 def hex.value(+b: U32) -> U32:
   hex.value.if_range(in_range(b, 48, 57), in_range(b, 97, 102), in_range(b, 65, 70), b)
 
-def text.end.flushed(t: Txt, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>,
-    +ncaps: U32) -> Scan:
+def text.end.flushed(t: Txt, +stack: List<&2, Frame>) -> Move:
   match t:
     case Txt{key, keep, acc, _, _}:
       match key:
         case True{}:
-          named(List.reverse(&2, U32, acc), stack, depth, caps, ncaps)
+          named(List.reverse(&2, U32, acc), stack)
         case False{}:
-          value(keep, stack, depth, caps, ncaps, Str{List.reverse(&2, U32, acc)})
+          value(keep, stack, Str{List.reverse(&2, U32, acc)})
 
 # A string ended: a key names what follows; a value is kept or not.
-def text.end(+t: Txt, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32)
-    -> Scan:
-  text.end.flushed(txt.flush(t), stack, depth, caps, ncaps)
+def text.end(+t: Txt, +stack: List<&2, Frame>) -> Move:
+  text.end.flushed(txt.flush(t), stack)
 
 # quote, backslash, control: what the byte is.
 def text.byte.if_kind(quote: Bool, backslash: Bool, control: Bool, +t: Txt, +b: U32,
-    +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+    +stack: List<&2, Frame>) -> Move:
   match quote:
     case True{}:
-      text.end(t, stack, depth, caps, ncaps)
+      text.end(t, stack)
     case False{}:
       match backslash:
         case True{}:
-          Scan{InEscape{t}, stack, depth, caps, ncaps}
+          same(InEscape{t})
         case False{}:
           match control:
             case True{}:
-              broken("a control byte in a string")
+              Breaks{"a control byte in a string"}
             case False{}:
-              Scan{InString{txt.add(txt.flush(t), b)}, stack, depth, caps, ncaps}
+              same(InString{txt.add(txt.flush(t), b)})
 
 # A byte inside a string: its end, an escape, or one of its bytes.
-def text.byte(+t: Txt, +b: U32, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>,
-    +ncaps: U32) -> Scan:
-  text.byte.if_kind(U32.is_eq(b, 34), U32.is_eq(b, 92), (b < 32 : U32), t, b, stack, depth, caps,
-    ncaps)
+def text.byte(+t: Txt, +b: U32, +stack: List<&2, Frame>) -> Move:
+  text.byte.if_kind(U32.is_eq(b, 34), U32.is_eq(b, 92), (b < 32 : U32), t, b, stack)
 
-def escape.on_simple(bad: Bool, +v: U32, +t: Txt, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def escape.on_simple(bad: Bool, +v: U32, +t: Txt) -> Move:
   match bad:
     case True{}:
-      broken("a bad escape")
+      Breaks{"a bad escape"}
     case False{}:
-      Scan{InString{txt.add(txt.flush(t), v)}, stack, depth, caps, ncaps}
+      same(InString{txt.add(txt.flush(t), v)})
 
-def escape.on(u: Bool, +v: U32, +t: Txt, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def escape.on(u: Bool, +v: U32, +t: Txt) -> Move:
   match u:
     case True{}:
-      Scan{InHex{t, 4n, 0}, stack, depth, caps, ncaps}
+      same(InHex{t, 4n, 0})
     case False{}:
-      escape.on_simple(U32.is_eq(v, 256), v, t, stack, depth, caps, ncaps)
+      escape.on_simple(U32.is_eq(v, 256), v, t)
 
 # The byte after a backslash: \u starts a code point (a waiting high surrogate stays waiting).
-def escape.byte(+t: Txt, +b: U32, +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>,
-    +ncaps: U32) -> Scan:
-  escape.on(U32.is_eq(b, 117), unescape(b), t, stack, depth, caps, ncaps)
+def escape.byte(+t: Txt, +b: U32) -> Move:
+  escape.on(U32.is_eq(b, 117), unescape(b), t)
 
 # left: the digits after this one.
-def hex.next(left: Nat, +t: Txt, +code: U32, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def hex.next(left: Nat, +t: Txt, +code: U32) -> Move:
   match left:
     case 0n:
-      Scan{InString{codepoint(t, code)}, stack, depth, caps, ncaps}
+      same(InString{codepoint(t, code)})
     case 1n+q:
-      Scan{InHex{t, 1n+q, code}, stack, depth, caps, ncaps}
+      same(InHex{t, 1n+q, code})
 
-def hex.on(bad: Bool, +v: U32, left: Nat, +t: Txt, +code: U32, +stack: List<&2, Frame>,
-    +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def hex.on(bad: Bool, +v: U32, left: Nat, +t: Txt, +code: U32) -> Move:
   match bad:
     case True{}:
-      broken("a bad \\u escape")
+      Breaks{"a bad \\u escape"}
     case False{}:
-      hex.next(left, t, ((code << 4n) .|. v : U32), stack, depth, caps, ncaps)
+      hex.next(left, t, ((code << 4n) .|. v : U32))
 
 # A hex digit of a \u escape.
-def hex.byte(+t: Txt, digits: Nat, +code: U32, +b: U32, +stack: List<&2, Frame>, +depth: U32,
-    caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def hex.byte(+t: Txt, digits: Nat, +code: U32, +b: U32) -> Move:
   match digits:
     case 0n:
-      Scan{InString{codepoint(t, code)}, stack, depth, caps, ncaps}
+      same(InString{codepoint(t, code)})
     case 1n+p:
-      hex.on(U32.is_eq(hex.value(b), 16), hex.value(b), p, t, code, stack, depth, caps, ncaps)
+      hex.on(U32.is_eq(hex.value(b), 16), hex.value(b), p, t, code)
 
 # Numbers and words
 # -----------------
@@ -697,71 +813,88 @@ def is_number_byte(+b: U32) -> Bool:
   Bool.or(in_range(b, 48, 57), Bool.or(U32.is_eq(b, 45), Bool.or(U32.is_eq(b, 43),
     Bool.or(U32.is_eq(b, 46), Bool.or(U32.is_eq(b, 101), U32.is_eq(b, 69))))))
 
-# A byte where structure is expected, read by a scanner that just finished a value.
-def resume(+ws: Wants, s: Scan, +b: U32) -> Scan:
-  match s:
-    case Scan{m, +stack, +depth, caps, +ncaps}:
-      structural(ws, m, classify(b), b, stack, depth, caps, ncaps)
+def cap.or(a: Maybe<&2, Cap>, b: Maybe<&2, Cap>) -> Maybe<&2, Cap>:
+  match a:
+    case Some{c}:
+      Some{c}
+    case None{}:
+      b
+
+def resume.on(mv: Move, cap: Maybe<&2, Cap>) -> Move:
+  match mv:
+    case Breaks{why}:
+      Breaks{why}
+    case Goes{m, op, c2}:
+      Goes{m, op, cap.or(cap, c2)}
+
+# A byte where structure is expected, read right after a value ended (its move: first).
+def resume(+ws: Wants, first: Move, +b: U32, +stack: List<&2, Frame>, deep: Bool) -> Move:
+  match first:
+    case Breaks{why}:
+      Breaks{why}
+    case Goes{m, _, cap}:
+      resume.on(structural(ws, m, classify(b), b, stack, deep), cap)
 
 # more: whether b continues the number; long: whether it would pass max_number.
 def number.on(more: Bool, long: Bool, +ws: Wants, acc: B.Bytes, +n: U32, +b: U32,
-    +stack: List<&2, Frame>, +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+    +stack: List<&2, Frame>, deep: Bool) -> Move:
   match more:
     case True{}:
       match long:
         case True{}:
-          broken("a number over 64 characters")
+          Breaks{"a number over 64 characters"}
         case False{}:
-          Scan{InNumber{b <> acc, (n + 1 : U32)}, stack, depth, caps, ncaps}
+          same(InNumber{b <> acc, (n + 1 : U32)})
     case False{}:
-      resume(ws, value(wanted(ws, stack), stack, depth, caps, ncaps,
-        Num{List.reverse(&2, U32, acc)}), b)
+      resume(ws, value(wanted(ws, stack), stack, Num{List.reverse(&2, U32, acc)}), b, stack, deep)
 
 # A byte after a number's first: more of it, or what follows it (read as such).
-def number.byte(+ws: Wants, acc: B.Bytes, +n: U32, +b: U32, +stack: List<&2, Frame>,
-    +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
-  number.on(is_number_byte(b), (n >= max_number() : U32), ws, acc, n, b, stack, depth, caps, ncaps)
+def number.byte(+ws: Wants, acc: B.Bytes, +n: U32, +b: U32, +stack: List<&2, Frame>, deep: Bool)
+    -> Move:
+  number.on(is_number_byte(b), (n >= max_number() : U32), ws, acc, n, b, stack, deep)
 
-def word.on(ok: Bool, rest: B.Bytes, val: Val, +ws: Wants, +stack: List<&2, Frame>,
-    +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def word.on(ok: Bool, rest: B.Bytes, val: Val, +ws: Wants, +stack: List<&2, Frame>) -> Move:
   match ok:
     case False{}:
-      broken("a bad literal")
+      Breaks{"a bad literal"}
     case True{}:
       match rest:
         case Nil{}:
-          value(wanted(ws, stack), stack, depth, caps, ncaps, val)
+          value(wanted(ws, stack), stack, val)
         case _:
-          Scan{InWord{rest, val}, stack, depth, caps, ncaps}
+          same(InWord{rest, val})
 
 # A byte of true, false or null.
-def word.byte(+ws: Wants, rest: B.Bytes, val: Val, +b: U32, +stack: List<&2, Frame>,
-    +depth: U32, caps: List<&2, Cap>, +ncaps: U32) -> Scan:
+def word.byte(+ws: Wants, rest: B.Bytes, val: Val, +b: U32, +stack: List<&2, Frame>) -> Move:
   match rest:
     case Nil{}:
-      broken("a bad literal")
+      Breaks{"a bad literal"}
     case x <> xs:
-      word.on(U32.is_eq(b, x), xs, val, ws, stack, depth, caps, ncaps)
+      word.on(U32.is_eq(b, x), xs, val, ws, stack)
+
+# What a byte does in this mode, with these containers open (deep: no more may open).
+def move(+ws: Wants, mode: Mode, +stack: List<&2, Frame>, deep: Bool, +b: U32) -> Move:
+  match mode:
+    case InString{t}:
+      text.byte(t, b, stack)
+    case InEscape{t}:
+      escape.byte(t, b)
+    case InHex{t, digits, code}:
+      hex.byte(t, digits, code, b)
+    case InNumber{acc, n}:
+      number.byte(ws, acc, n, b, stack, deep)
+    case InWord{rest, val}:
+      word.byte(ws, rest, val, b, stack)
+    case Broken{why}:
+      Breaks{why}
+    case other:
+      structural(ws, other, classify(b), b, stack, deep)
 
 # The scanner after one byte.
 def step(+ws: Wants, s: Scan, +b: U32) -> Scan:
   match s:
-    case Scan{mode, +stack, +depth, caps, +ncaps}:
-      match mode:
-        case InString{t}:
-          text.byte(t, b, stack, depth, caps, ncaps)
-        case InEscape{t}:
-          escape.byte(t, b, stack, depth, caps, ncaps)
-        case InHex{t, digits, code}:
-          hex.byte(t, digits, code, b, stack, depth, caps, ncaps)
-        case InNumber{acc, n}:
-          number.byte(ws, acc, n, b, stack, depth, caps, ncaps)
-        case InWord{rest, val}:
-          word.byte(ws, rest, val, b, stack, depth, caps, ncaps)
-        case Broken{why}:
-          broken(why)
-        case other:
-          structural(ws, other, classify(b), b, stack, depth, caps, ncaps)
+    case Scan{mode, +st, k}:
+      land(st, k, move(ws, mode, stack.frames(st), stack.full(st), b))
 
 # The scanner after a run of bytes.
 def run(bs: B.Bytes, +ws: Wants, s: Scan) -> Scan:

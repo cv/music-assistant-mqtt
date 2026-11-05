@@ -109,3 +109,25 @@ law json_scan_only_wanted:
   for +ws: J.Wants
   for bs: B.Bytes
   {J.caps.ok(ws, J.scan(ws, bs)) == True{} : Bool}
+
+# Memory
+# ------
+# For every wanted paths and bytes: the open containers plus the room left are max_depth (64), and
+# the kept values plus the room left are max_caps (256), so a document never holds more, however
+# it is built.
+
+def stack.size(+st: J.Stack) -> Nat:
+  Nat.add(List.length(&2, J.Frame, J.stack.frames(st)), J.stack.room(st))
+
+def kept.size(+k: J.Kept) -> Nat:
+  Nat.add(List.length(&2, J.Cap, J.kept.caps(k)), J.kept.room(k))
+
+law json_depth_bounded:
+  for +ws: J.Wants
+  for +bs: B.Bytes
+  {stack.size(J.scan.stack(J.run(bs, ws, J.start()))) == J.max_depth() : Nat}
+
+law json_kept_bounded:
+  for +ws: J.Wants
+  for +bs: B.Bytes
+  {kept.size(J.scan.kept(J.run(bs, ws, J.start()))) == J.max_caps() : Nat}

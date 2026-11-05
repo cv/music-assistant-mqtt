@@ -362,7 +362,7 @@ def guard_ok(+ws: J.Wants, caps: List<&2, J.Cap>)
 # For every scanner state: what a document hands out is all at wanted paths.
 def finished_ok(+ws: J.Wants, s: J.Scan) -> {J.caps.ok(ws, J.finished(ws, s)) == True{} : Bool}:
   match s:
-    case J.Scan{mode, st, d, caps, n}:
+    case J.Scan{mode, st, k}:
       match mode:
         case J.Value{}:
           {==}
@@ -387,6 +387,6 @@ def finished_ok(+ws: J.Wants, s: J.Scan) -> {J.caps.ok(ws, J.finished(ws, s)) ==
         case J.InWord{rest, v}:
           {==}
         case J.Whole{}:
-          guard_ok(ws, List.reverse(&2, J.Cap, caps))
+          guard_ok(ws, List.reverse(&2, J.Cap, J.kept.caps(k)))
         case J.Broken{why}:
           {==}
