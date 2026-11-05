@@ -478,17 +478,25 @@ def append.if(on: Bool, +line: B.Bytes) -> List<&2, Action>:
     case False{}:
       Nil{}
 
-# A play published (and appended to the plays file when there is one), with these ids.
+# A play's publish, not retained (and its line for the plays file when there is one).
+def publish.play.acts(names: T.Names, +c: Core, pd: Pending, ids: Model.Ids) -> List<&2, Action>:
+  match pd:
+    case Pending{_, +play, +unix, _}:
+      +line = T.played(unix, level.on(T.level.of(names, play.player(play)), play.player(play)),
+        play, ids)
+      ToMq{M.Publish{False{}, 0, False{}, T.topic.played(core.prefix(c)), 0, line}}
+        <> append.if(Bool.not(C.blank(C.out.plays(C.conf.out(core.conf(c))))), line)
+
+# A play published, with these ids, and counted (the count doesn't depend on the play).
 def publish.play(b: Book, +c: Core, pd: Pending, ids: Model.Ids) -> Out:
   match b:
     case Book{+names, known, pending, plays}:
-      match pd:
-        case Pending{_, +play, +unix, _}:
-          +line = T.played(unix, level.on(T.level.of(names, play.player(play)), play.player(play)),
-            play, ids)
-          Out{with.book(c, Book{names, known, pending, (plays + 1 : U32)}),
-            ToMq{M.Publish{False{}, 0, False{}, T.topic.played(core.prefix(c)), 0, line}}
-              <> append.if(Bool.not(C.blank(C.out.plays(C.conf.out(core.conf(c))))), line)}
+      Out{with.book(c, Book{names, known, pending, (plays + 1 : U32)}),
+        publish.play.acts(names, c, pd, ids)}
+
+# Whether a pending play is the one a reply with these id bytes answers.
+def pending.answers(+p: Pending, +id: B.Bytes) -> Bool:
+  B.beq(B.utf8(U32.show(pending.id(p))), id)
 
 def pending.drop.if(same: Bool, p: Pending, rest: List<&2, Pending>) -> List<&2, Pending>:
   match same:
@@ -497,15 +505,13 @@ def pending.drop.if(same: Bool, p: Pending, rest: List<&2, Pending>) -> List<&2,
     case False{}:
       p <> rest
 
-def pending.drop(ps: List<&2, Pending>, +id: U32) -> List<&2, Pending>:
+# The pending plays without any a reply with these id bytes answers.
+def pending.drop(ps: List<&2, Pending>, +id: B.Bytes) -> List<&2, Pending>:
   match ps:
     case Nil{}:
       Nil{}
     case +p <> t:
-      pending.drop.if(U32.is_eq(pending.id(p), id), p, pending.drop(t, id))
-
-def pending.answers(+p: Pending, +id: B.Bytes) -> Bool:
-  B.beq(B.utf8(U32.show(pending.id(p))), id)
+      pending.drop.if(pending.answers(p, id), p, pending.drop(t, id))
 
 def pending.head(+ps: List<&2, Pending>, +id: B.Bytes) -> Bool:
   match ps:
@@ -514,7 +520,7 @@ def pending.head(+ps: List<&2, Pending>, +id: B.Bytes) -> Bool:
     case p <> _:
       pending.answers(p, id)
 
-# The play a reply with this id answers (hit: the first one does).
+# The play a reply with these id bytes answers (hit: the first one does).
 def pending.find(+ps: List<&2, Pending>, +id: B.Bytes, hit: Bool) -> Maybe<&2, Pending>:
   match ps:
     case Nil{}:
@@ -526,17 +532,19 @@ def pending.find(+ps: List<&2, Pending>, +id: B.Bytes, hit: Bool) -> Maybe<&2, P
         case False{}:
           pending.find(t, id, pending.head(t, id))
 
-def answered.take(b: Book, +c: Core, +pd: Pending, ids: Model.Ids) -> Out:
+# The play answered under these id bytes: out of the book (with any other answering them) and
+# published.
+def answered.take(b: Book, +c: Core, +pd: Pending, +id: B.Bytes, ids: Model.Ids) -> Out:
   match b:
     case Book{names, known, pending, plays}:
-      publish.play(Book{names, known, pending.drop(pending, pending.id(pd)), plays}, c, pd, ids)
+      publish.play(Book{names, known, pending.drop(pending, id), plays}, c, pd, ids)
 
-def answered.on(m: Maybe<&2, Pending>, +c: Core, ids: Model.Ids) -> Out:
+def answered.on(m: Maybe<&2, Pending>, +c: Core, +id: B.Bytes, ids: Model.Ids) -> Out:
   match m:
     case None{}:
       Out{c, Nil{}}
     case Some{pd}:
-      answered.take(core.book(c), c, pd, ids)
+      answered.take(core.book(c), c, pd, id, ids)
 
 def book.pending(b: Book) -> List<&2, Pending>:
   match b:
@@ -546,7 +554,7 @@ def book.pending(b: Book) -> List<&2, Pending>:
 # A lookup's answer (or refusal: ids empty) publishes its play.
 def answered(+c: Core, +id: B.Bytes, ids: Model.Ids) -> Out:
   +ps = book.pending(core.book(c))
-  answered.on(pending.find(ps, id, pending.head(ps, id)), c, ids)
+  answered.on(pending.find(ps, id, pending.head(ps, id)), c, id, ids)
 
 def no_ids() -> Model.Ids:
   Model.Ids{Nil{}, Nil{}, Nil{}}
@@ -735,10 +743,19 @@ def routine.report.acts(report: Bool) -> List<&2, Action>:
 # Routine work: a ping when the broker heard nothing from us for ping_every, the health report
 # when due, a lookup that waited too long published without ids.
 # Lookups are only made while live, so only then can one expire.
+# A lookup that waited too long: its play published without ids, under its own id bytes (a late
+# answer then finds nothing).
+def expire.on(m: Maybe<&2, Pending>, +c: Core) -> Out:
+  match m:
+    case None{}:
+      Out{c, Nil{}}
+    case Some{+pd}:
+      answered.take(core.book(c), c, pd, B.utf8(U32.show(pending.id(pd))), no_ids())
+
 def routine.expire(live: Bool, +c: Core, +now: U32) -> Out:
   match live:
     case True{}:
-      answered.on(expired(book.pending(core.book(c)), now), c, no_ids())
+      expire.on(expired(book.pending(core.book(c)), now), c)
     case False{}:
       Out{c, Nil{}}
 
