@@ -1,6 +1,7 @@
 import Base
 import ./lib/net/run.bend as Rn
 import ./lib/net/sd.bend as Sd
+import ./lib/net/clock.bend as Ck
 import ./lib/wire/bytes.bend as B
 import ./lib/bridge/conf.bend as C
 import ./lib/bridge/core.bend as Core
@@ -64,11 +65,11 @@ def problems.print(ps: List<&2, C.Problem>) -> IO(Unit):
         IO.print(C.problem.text(p))
         problems.print(t)
 
-def run(+conf: C.Conf, +t: Nat) -> IO(Unit):
+def run(+conf: C.Conf, +started: U32) -> IO(Unit):
   do IO<Unit>:
     IO.print("music-assistant-mqtt " ++ version() ++ ": " ++ C.summary(conf))
     l : Loop <- Rn.Run.forever(~Loop, ~again.live, ~again.step,
-      Loop{0n, App.Life{version(), U32.from_nat(Nat.div(t, 1000n)), 0, ""}, conf})
+      Loop{0n, App.Life{version(), started, 0, ""}, conf})
     return Unit{}
 
 def start.if_ok(fatal: Bool, +conf: C.Conf) -> IO(Unit):
@@ -79,8 +80,8 @@ def start.if_ok(fatal: Bool, +conf: C.Conf) -> IO(Unit):
         IO.exit(2)
     case False{}:
       do IO<Unit>:
-        t : Nat <- IO.now()
-        run(conf, t)
+        u : U32 <- Ck.Clock.unix()
+        run(conf, u)
 
 def start(r: C.Read) -> IO(Unit):
   match r:

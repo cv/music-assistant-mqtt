@@ -3,6 +3,7 @@ import ../net/run.bend as Rn
 import ../net/net.bend as Nt
 import ../net/sock.bend as Sk
 import ../net/sd.bend as Sd
+import ../net/clock.bend as Ck
 import ../wire/bytes.bend as B
 import ../wire/mqtt.bend as M
 import ../wire/ws.bend as W
@@ -56,8 +57,8 @@ type Main is Type:
 # Time
 # ----
 
-def time.of(+t: Nat) -> Core.Time:
-  Core.Time{U32.from_nat(t), U32.from_nat(Nat.div(t, 1000n))}
+def time.of(+t: Nat, +unix: U32) -> Core.Time:
+  Core.Time{U32.from_nat(t), unix}
 
 def send_ms() -> U32:
   10000
@@ -263,6 +264,16 @@ def mem_kb() -> IO(String):
     r : Result<&1, &1, U32 & String, File> <- File.open("/proc/self/status", "r")
     mem.open(r)
 
+def or_none.if(blank: Bool, s: String) -> String:
+  match blank:
+    case True{}:
+      "none"
+    case False{}:
+      s
+
+def or_none(+s: String) -> String:
+  or_none.if(C.blank(s), s)
+
 def health.one(+prefix: String, name: String, value: String) -> B.Bytes:
   M.encode(M.Publish{False{}, 0, True{}, T.topic.health(prefix, name), 0, B.utf8(value)})
 
@@ -273,7 +284,7 @@ def report.bytes(+core: Core.Core, l: Life, +unix: U32, mem: String) -> B.Bytes:
       +p = Core.core.prefix(core)
       B.flat([health.one(p, "version", v),
         health.one(p, "uptime_s", U32.show((unix - started : U32))),
-        health.one(p, "sessions", U32.show(n)), health.one(p, "last_end", e),
+        health.one(p, "sessions", U32.show(n)), health.one(p, "last_end", or_none(e)),
         health.one(p, "plays", U32.show(Core.core.plays(core))),
         health.one(p, "players", Nat.show(Core.core.players(core))),
         health.one(p, "memory_kb", mem)])
@@ -392,7 +403,8 @@ def main.step(m: Main) -> IO(Main):
             case i <> rest:
               do IO<Main>:
                 t : Nat <- IO.now()
-                handle(Main{mq, ma, events, core, life, Loop{rest, tick}}, time.of(t), i)
+                u : U32 <- Ck.Clock.unix()
+                handle(Main{mq, ma, events, core, life, Loop{rest, tick}}, time.of(t, u), i)
             case Nil{}:
               do IO<Main>:
                 r : Poll<&1, &1, Maybe<&1, R.Ev>, Unit> <- Chan.try_recv(R.Ev, events, 1000)
@@ -426,12 +438,12 @@ def finish(m: Main) -> IO(Ended):
         Chan.close(R.Ev, events)
         return Ended{Core.core.up(core), life.last_end(life)}
 
-def session.begin(+t: Nat, mq: Socket, +events: Chan(R.Ev), +conf: C.Conf, life: Life)
+def session.begin(+t: Nat, +u: U32, mq: Socket, +events: Chan(R.Ev), +conf: C.Conf, life: Life)
     -> IO(Ended):
-  +o = Core.start(conf, time.of(t))
+  +o = Core.start(conf, time.of(t, u))
   do IO<Ended>:
     m : Main <- acts(Core.out.actions(o), Main{mq, MaClosed{}, events, Core.out.core(o), life,
-      Loop{Nil{}, U32.from_nat(t)}}, time.of(t))
+      Loop{Nil{}, U32.from_nat(t)}}, time.of(t, u))
     m : Main <- Rn.Run.forever(~Main, ~main.live, ~main.step, m)
     finish(m)
 
@@ -444,7 +456,8 @@ def session.dup(p: Socket & Result<&1, &1, U32 & String, Socket>, +events: Chan(
         IO.spawn(R.MqReader, Rn.Run.forever(~R.MqReader, ~R.mq_reader.live, ~R.mq_reader.step,
           R.MqUp{reader, Nil{}, events}))
         t : Nat <- IO.now()
-        session.begin(t, mq, events, conf, life)
+        u : U32 <- Ck.Clock.unix()
+        session.begin(t, u, mq, events, conf, life)
     case Fail{_}:
       do IO<Ended>:
         Socket.close(mq)
