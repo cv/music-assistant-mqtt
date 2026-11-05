@@ -22,7 +22,7 @@ can't control a player (the core's ToMa action carries an `Api.Command`, and Api
 three).
 
 Status (2026-11-05): running beside Music Assistant 2.10.9 (Sonos, Apple Music, Spotify) as a
-container (`deploy/`); 106 laws, all proven. About 1 MB of memory, 2 threads.
+container (`deploy/`); 107 laws, all proven. About 1 MB of memory, 2 threads.
 
 ## Working rules
 
@@ -167,6 +167,10 @@ plays_file <path>|off     # the JSON-lines history (/data/plays.jsonl)
 - An ended session does nothing more; a lost link ends the session (offline first when the broker
   still listens); Music Assistant's pings get their pongs; the reconnect waits stay in 1..60 s.
 - The config's summary never shows the token or the password.
+- Bounds: the JSON scanner holds at most 64 open containers and 256 kept values, a string being
+  read at most 4096 bytes, a number at most 64 characters; every value it keeps is small, its path
+  included (a string at most 4096 bytes, a number at most 64 characters, at most 64 levels of keys
+  of at most 4096 bytes), so what a document holds can't grow what reaches the bridge.
 - The decoders read the same however the socket splits the bytes (WebSocket, JSON, MQTT).
 
 ## Testing

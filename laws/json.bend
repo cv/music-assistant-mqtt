@@ -132,8 +132,66 @@ law json_kept_bounded:
   for +bs: B.Bytes
   {kept.size(J.scan.kept(J.run(bs, ws, J.start()))) == J.max_caps() : Nat}
 
+# What small means for what a scan holds: a key or a string at most max_text (4096) bytes, a
+# number at most max_number (64) characters, a path at most max_depth (64) levels of small keys.
+def key.ok(k: B.Bytes) -> Bool:
+  Nat.is_le(List.length(&2, U32, k), J.max_text())
+
+def frame.ok(f: J.Frame) -> Bool:
+  match f:
+    case J.InObj{k}:
+      key.ok(k)
+    case J.InArr{_}:
+      True{}
+
+def frames.ok(fs: List<&2, J.Frame>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case f <> t:
+      Bool.and(frame.ok(f), frames.ok(t))
+
+def seg.ok(s: J.Seg) -> Bool:
+  match s:
+    case J.SKey{k}:
+      key.ok(k)
+    case J.SIdx{_}:
+      True{}
+
+def segs.ok(ss: List<&2, J.Seg>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case s <> t:
+      Bool.and(seg.ok(s), segs.ok(t))
+
+def path.ok(+p: List<&2, J.Seg>) -> Bool:
+  Bool.and(Nat.is_le(List.length(&2, J.Seg, p), J.max_depth()), segs.ok(p))
+
+def val.ok(v: J.Val) -> Bool:
+  match v:
+    case J.Str{bs}:
+      Nat.is_le(List.length(&2, U32, bs), J.max_text())
+    case J.Num{t}:
+      Nat.is_le(List.length(&2, U32, t), J.max_number())
+    case _:
+      True{}
+
+def cap.ok(c: J.Cap) -> Bool:
+  match c:
+    case J.Cap{p, v}:
+      Bool.and(path.ok(p), val.ok(v))
+
+def caps.ok(cs: List<&2, J.Cap>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> t:
+      Bool.and(cap.ok(c), caps.ok(t))
+
 # For every wanted paths and bytes: a string being read holds its bytes plus its room equal to
-# max_text (4096), a number its characters plus its room equal to max_number (64).
+# max_text (4096), a number its characters plus its room equal to max_number (64), and a literal
+# being read (true, false, null) holds a small value.
 def txt.ok(t: J.Txt) -> Bool:
   match t:
     case J.Txt{_, _, acc, room, _}:
@@ -149,6 +207,8 @@ def mode.ok(m: J.Mode) -> Bool:
       txt.ok(t)
     case J.InNumber{acc, room}:
       Nat.is_eq(Nat.add(List.length(&2, U32, acc), room), J.max_number())
+    case J.InWord{_, v}:
+      val.ok(v)
     case _:
       True{}
 
@@ -156,3 +216,10 @@ law json_buffers_bounded:
   for +ws: J.Wants
   for +bs: B.Bytes
   {mode.ok(J.scan.mode(J.run(bs, ws, J.start()))) == True{} : Bool}
+
+# For every wanted paths and bytes: every value kept is small (above), its path included, so
+# whatever a document holds, what reaches the bridge is bounded.
+law json_kept_small:
+  for +ws: J.Wants
+  for +bs: B.Bytes
+  {caps.ok(J.kept.caps(J.scan.kept(J.run(bs, ws, J.start())))) == True{} : Bool}

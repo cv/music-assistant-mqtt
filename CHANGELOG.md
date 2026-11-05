@@ -2,12 +2,14 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
-## Unreleased
+## 0.4.0 (2026-11-05)
 
 - The JSON scanner's limits are proven for every input: at most 64 open containers, 256 kept
   values, 4096 bytes per string being read, 64 characters per number. A byte is now a move (what
   it does) and a land (the only place containers and kept values change, each within its room);
   the counters are rooms that count down. Behaviour is unchanged (every earlier law still holds).
+- Every value the scanner keeps is proven small, its path included: a string at most 4096 bytes,
+  a number at most 64 characters, at most 64 levels of keys of at most 4096 bytes.
 
 ## 0.3.0 (2026-11-05)
 
