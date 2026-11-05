@@ -201,3 +201,63 @@ law backoff_bounded:
   for s: Nat
   {Bool.and((K.backoff.wait(s) >= 1000 : U32), (K.backoff.wait(s) <= 60000 : U32)) == True{}
     : Bool}
+
+# Before going live
+# ----------------
+
+# Whether an action publishes anything but the offline status (a player's state, a play, a report).
+def data.is(a: K.Action) -> Bool:
+  match a:
+    case K.ToMq{p}:
+      match p:
+        case M.Publish{_, _, _, _, _, payload}:
+          Bool.not(B.beq(payload, B.utf8("offline")))
+        case _:
+          False{}
+    case _:
+      False{}
+
+def data.in(as: List<&2, K.Action>) -> Bool:
+  match as:
+    case Nil{}:
+      False{}
+    case a <> t:
+      Bool.or(data.is(a), data.in(t))
+
+def at(conf: C.Conf, ph: K.Phase, +n: U32, up: Bool, clock: K.Clock, book: K.Book) -> K.Core:
+  K.Core{conf, K.Session{ph, n, up}, clock, book}
+
+# For every core and input: until the broker accepted the login, Music Assistant said hello and
+# took the token, nothing is published but the offline status (whatever either side sends).
+law core_quiet_connecting:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +book: K.Book
+  for +t: K.Time
+  for +ev: K.Input
+  {data.in(K.out.actions(K.step(at(conf, K.Connecting{}, n, up, clock, book), t, ev))) == False{}
+    : Bool}
+
+law core_quiet_opening:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +book: K.Book
+  for +t: K.Time
+  for +ev: K.Input
+  {data.in(K.out.actions(K.step(at(conf, K.Opening{}, n, up, clock, book), t, ev))) == False{}
+    : Bool}
+
+law core_quiet_logging_in:
+  for +conf: C.Conf
+  for +n: U32
+  for +up: Bool
+  for +clock: K.Clock
+  for +book: K.Book
+  for +t: K.Time
+  for +ev: K.Input
+  {data.in(K.out.actions(K.step(at(conf, K.LoggingIn{}, n, up, clock, book), t, ev))) == False{}
+    : Bool}

@@ -623,8 +623,15 @@ def message.on(m: Model.Msg, ph: Phase, +c: Core, +t: Time, +caps: Model.Caps) -
         case _:
           Out{c, Nil{}}
     case Model.Happened{+ev, _}:
-      happened(Bool.or(is.text(ev, "player_updated"), is.text(ev, "player_added")),
-        is.text(ev, "media_item_played"), c, t, caps)
+      match ph:
+        case Listing{}:
+          happened(Bool.or(is.text(ev, "player_updated"), is.text(ev, "player_added")),
+            is.text(ev, "media_item_played"), c, t, caps)
+        case Live{}:
+          happened(Bool.or(is.text(ev, "player_updated"), is.text(ev, "player_added")),
+            is.text(ev, "media_item_played"), c, t, caps)
+        case _:
+          Out{c, Nil{}}
     case Model.Unknown{}:
       Out{c, Nil{}}
 
@@ -727,15 +734,23 @@ def routine.report.acts(report: Bool) -> List<&2, Action>:
 
 # Routine work: a ping when the broker heard nothing from us for ping_every, the health report
 # when due, a lookup that waited too long published without ids.
-def routine(+ping: Bool, +report: Bool, +c: Core, +now: U32) -> Out:
+# Lookups are only made while live, so only then can one expire.
+def routine.expire(live: Bool, +c: Core, +now: U32) -> Out:
+  match live:
+    case True{}:
+      answered.on(expired(book.pending(core.book(c)), now), c, no_ids())
+    case False{}:
+      Out{c, Nil{}}
+
+def routine(+ping: Bool, +report: Bool, live: Bool, +c: Core, +now: U32) -> Out:
   +c1 = routine.ping(ping, c, now)
   +c2 = routine.report(report, c1, now)
   +before = List.append(&2, Action, routine.ping.acts(ping), routine.report.acts(report))
-  actions.then(answered.on(expired(book.pending(core.book(c2)), now), c2, no_ids()), before)
+  actions.then(routine.expire(live, c2, now), before)
 
 # The checks, in order: no answer to the login, a quiet broker, a quiet Music Assistant.
 def tick.if(no_answer: Bool, broker_gone: Bool, ma_gone: Bool, ping: Bool, report: Bool,
-    +c: Core, +now: U32) -> Out:
+    live: Bool, +c: Core, +now: U32) -> Out:
   match no_answer:
     case True{}:
       finish(c, "the broker didn't answer the login", False{})
@@ -748,7 +763,7 @@ def tick.if(no_answer: Bool, broker_gone: Bool, ma_gone: Bool, ping: Bool, repor
             case True{}:
               finish(c, "Music Assistant went quiet", True{})
             case False{}:
-              routine(ping, report, c, now)
+              routine(ping, report, live, c, now)
 
 def tick.on(k: Clock, +ph: Phase, +c: Core, +now: U32) -> Out:
   match k:
@@ -759,7 +774,7 @@ def tick.on(k: Clock, +ph: Phase, +c: Core, +now: U32) -> Out:
         Bool.and(up, since(now, mh, broker_quiet())),
         Bool.and(up, since(now, mah, ma_quiet())),
         Bool.and(up, since(now, ms, ping_every())),
-        Bool.and(is.live(ph), since(now, rep, report_every())), c, now)
+        Bool.and(is.live(ph), since(now, rep, report_every())), is.live(ph), c, now)
 
 # The step
 # --------
