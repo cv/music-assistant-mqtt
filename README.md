@@ -56,7 +56,9 @@ cross-compiles it, statically, for the target).
 
 [`ha/music-queue-card.js`](ha/music-queue-card.js) shows a player's last plays, its media control
 and its next items (`[art] Artist - Song 01:23`), from `music/<player>/queue`. A tap on a previous play plays it again; a tap on a
-next item jumps straight to it (nothing in between is played).
+next item jumps straight to it (nothing in between is played). A next item's ✕ removes it from the
+queue and adds a similar song at the end instead (Music Assistant's similar tracks, seeded by the
+removed song, else the queue's last and next ones; the first one not already queued or just played).
 
 1. An MQTT sensor per player, with the window as its attributes:
 
@@ -82,6 +84,20 @@ next item jumps straight to it (nothing in between is played).
        payload: >-
          {"command": "player_queues/play_index",
           "args": {"queue_id": {{ queue | tojson }}, "index": {{ item | tojson }}}}
+   ```
+
+   For the ✕, four more with the same url, method, headers and content type (their answers go back
+   to the card), with these payloads:
+
+   ```yaml
+   ma_delete_queue_item:   # {"command": "player_queues/delete_item",
+                           #  "args": {"queue_id": {{ queue | tojson }}, "item_id_or_index": {{ item | tojson }}}}
+   ma_queue_items:         # {"command": "player_queues/items", "args": {"queue_id": {{ queue | tojson }},
+                           #  "offset": {{ offset | int(0) }}, "limit": {{ limit | int(100) }}}}
+   ma_similar_tracks:      # {"command": "music/tracks/similar_tracks", "args": {"item_id": {{ item_id | tojson }},
+                           #  "provider_instance_id_or_domain": {{ provider | tojson }}, "limit": 10}}
+   ma_add_to_queue:        # {"command": "player_queues/play_media",
+                           #  "args": {"queue_id": {{ queue | tojson }}, "media": {{ uri | tojson }}, "option": "add"}}
    ```
 
 3. The card as a dashboard resource (`/local/music-queue-card.js`, from `config/www/`), then:

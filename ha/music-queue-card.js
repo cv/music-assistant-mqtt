@@ -11,7 +11,10 @@
 // attributes: "previous" (the last plays, oldest first) and "next" (the queue's next items). A tap
 // on a previous play plays it again now (music_assistant.play_media); a tap on a next item jumps to
 // it (rest_command.ma_play_queue_item, which calls Music Assistant's player_queues/play_index with
-// the item's id, so nothing in between is played or counted as a skip).
+// the item's id, so nothing in between is played or counted as a skip). A next item's ✕ removes it
+// from the queue (rest_command.ma_delete_queue_item) and adds a similar song at the end instead
+// (rest_command.ma_similar_tracks, seeded by the removed song, else the queue's last and next ones;
+// the first one not already queued or just played; rest_command.ma_add_to_queue).
 
 const length = (s) => {
   s = Math.max(0, Math.round(Number(s) || 0));
@@ -69,6 +72,12 @@ class MusicQueueCard extends HTMLElement {
         .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .note { flex: none; font-size: 0.8em; color: var(--secondary-text-color); opacity: 0.8; }
         .starting { opacity: 0.6; }
+        .del {
+          flex: none; border: none; background: none; cursor: pointer; padding: 4px 6px;
+          margin: -4px -8px -4px 0; border-radius: 50%; font-size: 1em; line-height: 1;
+          color: var(--secondary-text-color); opacity: 0.6;
+        }
+        .del:hover, .del:focus-visible { opacity: 1; background: var(--divider-color); }
         .empty { padding: 6px 16px; color: var(--secondary-text-color); font-size: 0.9em; }
         .player { padding: 0; }
         .player > * { --ha-card-border-width: 0; --ha-card-box-shadow: none; }
@@ -130,19 +139,31 @@ class MusicQueueCard extends HTMLElement {
   // [art] Artist - Song (note) 01:23
   _row(kind, i, image, duration, name, note) {
     const starting = this._pending === kind + i;
+    const removing = kind === "n" && this._pending === "d" + i;
     const src = thumb(image);
     const art = src
       ? '<img class="art" alt="" loading="lazy" src="' + esc(src) + '" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'), {className: \'art\', textContent: \'♪\'}))">'
       : '<div class="art">♪</div>';
-    const n = starting ? "starting…" : note;
-    return '<div class="row' + (starting ? " starting" : "") + '" role="button" tabindex="0" data-kind="'
+    const n = starting ? "starting…" : removing ? "removing…" : note;
+    const del = kind === "n" && !removing
+      ? '<button class="del" data-del="' + i + '" title="Remove, and add a similar song at the end" aria-label="Remove">✕</button>'
+      : "";
+    return '<div class="row' + (starting || removing ? " starting" : "") + '" role="button" tabindex="0" data-kind="'
       + kind + '" data-i="' + i + '">' + art + '<span class="name">' + esc(name) + "</span>"
       + (n ? '<span class="note">' + esc(n) + "</span>" : "") + '<span class="time">'
-      + length(duration) + "</span></div>";
+      + length(duration) + "</span>" + del + "</div>";
   }
 
   _tap(e) {
-    const row = e.composedPath().find((el) => el.classList && el.classList.contains("row"));
+    const path = e.composedPath();
+    const del = path.find((el) => el.classList && el.classList.contains("del"));
+    if (del && this._hass) {
+      e.preventDefault();
+      e.stopPropagation();
+      this._remove(Number(del.dataset.del));
+      return;
+    }
+    const row = path.find((el) => el.classList && el.classList.contains("row"));
     if (!row || !this._hass) return;
     e.preventDefault();
     const i = Number(row.dataset.i);
@@ -159,6 +180,74 @@ class MusicQueueCard extends HTMLElement {
     }
     this._pending = row.dataset.kind + i;
     this._render();
+  }
+
+  // A rest_command's answer (Music Assistant's result), or an error for a refused call.
+  async _ma(service, data) {
+    const r = await this._hass.callWS({
+      type: "call_service", domain: "rest_command", service, service_data: data, return_response: true,
+    });
+    const res = (r && r.response) || {};
+    if (res.status !== 200) throw new Error(service + ": status " + res.status);
+    return res.content;
+  }
+
+  // Removes next item i, then adds a similar song at the end of the queue (removals run one at a time).
+  _remove(i) {
+    const n = this._next && this._next[i];
+    const queue = this._window && this._window.queue;
+    if (!n || !n.id || !queue) return;
+    this._pending = "d" + i;
+    this._render();
+    const prev = (this._window.previous || []).map((p) => p.title);
+    const index = Number(this._window.index) || 0;
+    this._chain = (this._chain || Promise.resolve()).then(async () => {
+      try {
+        await this._ma("ma_delete_queue_item", { queue, item: n.id });
+        const uri = await this._replacement(queue, index, n, prev);
+        if (uri) await this._ma("ma_add_to_queue", { queue, uri });
+        else console.info("music-queue-card: no similar song to add for", n.name);
+      } catch (err) {
+        console.warn("music-queue-card: removing", n.name, "failed:", err);
+        this._pending = null;
+        this._render();
+      }
+    });
+  }
+
+  // A similar song's uri, not already in the queue (from the current one on) nor just played, or null.
+  async _replacement(queue, index, removed, prev) {
+    const key = (t) => String(t || "").toLowerCase().replace(/\s*[([][^)\]]*[)\]]/g, "").trim();
+    const title = (name) => String(name || "").split(" - ").slice(1).join(" - ") || name;
+    let items = [];
+    try {
+      items = await this._ma("ma_queue_items", { queue, offset: index, limit: 100 });
+    } catch (err) {
+      console.warn("music-queue-card: reading the queue failed:", err);
+    }
+    items = Array.isArray(items) ? items : [];
+    const taken = new Set([removed.name, ...prev].map((t) => key(title(t))));
+    for (const it of items) taken.add(key((it.media_item && it.media_item.name) || title(it.name)));
+    for (const t of prev) taken.add(key(t));
+    const seeds = [removed.uri];
+    for (const it of [items[items.length - 1], items[1], items[0]]) {
+      const u = it && it.media_item && it.media_item.uri;
+      if (u && !seeds.includes(u)) seeds.push(u);
+    }
+    for (const seed of seeds) {
+      const m = /^([^:]+):\/\/track\/(.+)$/.exec(String(seed || ""));
+      if (!m) continue;
+      let similar = [];
+      try {
+        similar = await this._ma("ma_similar_tracks", { provider: m[1], item_id: m[2] });
+      } catch (err) {
+        console.warn("music-queue-card: similar songs for", seed, "failed:", err);
+      }
+      for (const s of Array.isArray(similar) ? similar : []) {
+        if (s && s.uri && !taken.has(key(s.name))) return s.uri;
+      }
+    }
+    return null;
   }
 
   getCardSize() {
