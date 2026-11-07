@@ -114,10 +114,11 @@ class MusicQueueCard extends HTMLElement {
         .results { padding-top: 4px; }
         .results .row { margin: 0; padding: 6px 4px; }
         .results .row.active { background: var(--secondary-background-color); }
-        /* the album gives way to the song: it shrinks (and ends in …) before the name does */
-        .results .name { flex: 1 1 auto; min-width: 45%; }
-        .results .note { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden;
-          text-overflow: ellipsis; white-space: nowrap; }
+        /* a suggestion on two lines: the artist (and album) small above, the song below */
+        .results .two { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+        .results .l1, .results .l2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .results .l1 { font-size: 0.85em; color: var(--secondary-text-color); }
+        .results .l2 { font-size: 1em; color: var(--primary-text-color); }
         .hint { padding: 8px 4px 2px; color: var(--secondary-text-color); font-size: 0.85em; }
       </style>
       <ha-card>
@@ -330,9 +331,15 @@ class MusicQueueCard extends HTMLElement {
 
   _renderResults() {
     const rows = this._results.map((t, i) => {
-      const html = this._row("s", i, image(t), t.duration, artists(t) + " - " + t.name,
-        t.album && t.album.name ? t.album.name : "");
-      return i === this._active ? html.replace('class="row', 'class="row active') : html;
+      const src = thumb(image(t));
+      const art = src
+        ? '<img class="art" alt="" loading="lazy" src="' + esc(src) + '">'
+        : '<div class="art">♪</div>';
+      const album = t.album && t.album.name ? " · " + t.album.name : "";
+      return '<div class="row' + (i === this._active ? " active" : "") + '" role="option" tabindex="0" data-kind="s" data-i="'
+        + i + '" title="' + esc(artists(t) + " - " + t.name + album) + '">' + art + '<span class="two"><span class="l1">'
+        + esc(artists(t) + album) + '</span><span class="l2">' + esc(t.name) + '</span></span><span class="time">'
+        + length(t.duration) + "</span></div>";
     });
     this._resultsEl.innerHTML = rows.join("") + (this._hint ? '<div class="hint">' + esc(this._hint) + "</div>" : "");
   }
