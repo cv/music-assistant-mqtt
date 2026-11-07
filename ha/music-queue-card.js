@@ -12,9 +12,13 @@
 // on a previous play plays it again now (music_assistant.play_media); a tap on a next item jumps to
 // it (rest_command.ma_play_queue_item, which calls Music Assistant's player_queues/play_index with
 // the item's id, so nothing in between is played or counted as a skip). A next item's ✕ removes it
-// from the queue (rest_command.ma_delete_queue_item) and adds a similar song at the end instead
-// (rest_command.ma_similar_tracks, seeded by the removed song, else the queue's last and next ones;
-// the first one not already queued or just played; rest_command.ma_add_to_queue).
+// from the queue (rest_command.ma_delete_queue_item) and adds a similar song at the end instead,
+// picked the way Music Assistant's Autoplay picks its songs: up to 5 random songs of the queue's
+// sources (the playlists, albums or artists it was started from; rest_command.ma_get_queue,
+// ma_source_tracks), else the song playing now, each asked for similar songs
+// (rest_command.ma_similar_tracks); the first one not already queued nor just played, under 20
+// minutes, goes at the end (rest_command.ma_add_to_queue). Autoplay's own seeds (the last 10 things
+// queued by hand) aren't in Music Assistant's API: a queue built item by item shows few sources.
 
 const length = (s) => {
   s = Math.max(0, Math.round(Number(s) || 0));
@@ -215,36 +219,60 @@ class MusicQueueCard extends HTMLElement {
     });
   }
 
-  // A similar song's uri, not already in the queue (from the current one on) nor just played, or null.
+  // A song for the end of the queue, like Autoplay's: similar to up to 5 random songs of the queue's
+  // sources (else the song playing now, then the queue's last one), not already in the queue (from
+  // the current one on) nor just played, under 20 minutes; its uri, or null.
   async _replacement(queue, index, removed, prev) {
     const key = (t) => String(t || "").toLowerCase().replace(/\s*[([][^)\]]*[)\]]/g, "").trim();
     const title = (name) => String(name || "").split(" - ").slice(1).join(" - ") || name;
-    let items = [];
-    try {
-      items = await this._ma("ma_queue_items", { queue, offset: index, limit: 100 });
-    } catch (err) {
-      console.warn("music-queue-card: reading the queue failed:", err);
-    }
-    items = Array.isArray(items) ? items : [];
+    const shuffle = (xs) => {
+      xs = xs.slice();
+      for (let i = xs.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [xs[i], xs[j]] = [xs[j], xs[i]];
+      }
+      return xs;
+    };
+    const quiet = async (service, data) => {
+      try {
+        return await this._ma(service, data);
+      } catch (err) {
+        console.warn("music-queue-card:", service, "failed:", err);
+        return null;
+      }
+    };
+    const list = (x) => (Array.isArray(x) ? x : []);
+    const items = list(await quiet("ma_queue_items", { queue, offset: index, limit: 100 }));
     const taken = new Set([removed.name, ...prev].map((t) => key(title(t))));
     for (const it of items) taken.add(key((it.media_item && it.media_item.name) || title(it.name)));
     for (const t of prev) taken.add(key(t));
-    const seeds = [removed.uri];
-    for (const it of [items[items.length - 1], items[1], items[0]]) {
-      const u = it && it.media_item && it.media_item.uri;
-      if (u && !seeds.includes(u)) seeds.push(u);
-    }
-    for (const seed of seeds) {
-      const m = /^([^:]+):\/\/track\/(.+)$/.exec(String(seed || ""));
-      if (!m) continue;
-      let similar = [];
-      try {
-        similar = await this._ma("ma_similar_tracks", { provider: m[1], item_id: m[2] });
-      } catch (err) {
-        console.warn("music-queue-card: similar songs for", seed, "failed:", err);
+    // The seeds: songs of the queue's sources, as Autoplay samples them.
+    const q = (await quiet("ma_get_queue", { queue })) || {};
+    let bases = [];
+    for (const s of shuffle(list(q.sources))) {
+      if (s.media_type === "track") {
+        if (s.uri) bases.push({ uri: s.uri, name: s.name });
+      } else if (["playlist", "album", "artist"].includes(s.media_type)) {
+        const tracks = list(await quiet("ma_source_tracks", {
+          media_type: s.media_type, item_id: s.item_id, provider: s.provider,
+        }));
+        bases.push(...tracks.filter((t) => t && t.uri).map((t) => ({ uri: t.uri, name: t.name })));
       }
-      for (const s of Array.isArray(similar) ? similar : []) {
-        if (s && s.uri && !taken.has(key(s.name))) return s.uri;
+    }
+    bases = shuffle(bases).slice(0, 5);
+    const current = q.current_item && q.current_item.media_item;
+    const last = items.length ? items[items.length - 1].media_item : null;
+    for (const t of [current, last]) {
+      if (t && t.uri && !bases.some((b) => b.uri === t.uri)) bases.push({ uri: t.uri, name: t.name });
+    }
+    for (const base of bases) {
+      const m = /^([^:]+):\/\/track\/(.+)$/.exec(String(base.uri || ""));
+      if (!m) continue;
+      const similar = list(await quiet("ma_similar_tracks", { provider: m[1], item_id: m[2] }));
+      for (const s of similar) {
+        if (!s || !s.uri || s.uri === base.uri || key(s.name) === key(base.name)) continue;
+        if (taken.has(key(s.name)) || Number(s.duration) > 20 * 60) continue;
+        return s.uri;
       }
     }
     return null;
