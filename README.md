@@ -116,6 +116,13 @@ started from), else to the song playing now; the first not already queued or jus
    next: 5
    ```
 
+Under the next items, a lookup box (`search: false` hides it) searches Music Assistant as you type
+(`ma_search_track`: `music/search`, with `limit`); picking a song puts it right after the songs
+shown: added at the end (`ma_add_to_queue`), then moved up (`ma_move_queue_item`:
+`player_queues/move_item` with `queue_item_id` and `pos_shift`). It shows as one more row until it
+comes into the window.
+
+
 ## A lyrics card for Home Assistant
 
 [`ha/music-lyrics-card.js`](ha/music-lyrics-card.js) shows the lyrics of what a Music Assistant
