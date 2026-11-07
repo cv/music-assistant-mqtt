@@ -55,7 +55,7 @@ cross-compiles it, statically, for the target).
 ## A queue card for Home Assistant
 
 [`ha/music-queue-card.js`](ha/music-queue-card.js) shows a player's last plays, its media control
-and its next items (`[art] Artist - Song 01:23`), from `music/<player>/queue`. A tap on a previous play plays it again; a tap on a
+and its next items (artwork, the artist above the song's title, its length), from `music/<player>/queue`. A tap on a previous play plays it again; a tap on a
 next item jumps straight to it (nothing in between is played). A next item's ✕ removes it from the
 queue and adds a similar song at the end instead, picked the way Music Assistant's Autoplay picks:
 similar to up to 5 random songs of the queue's sources (the playlists, albums or artists it was

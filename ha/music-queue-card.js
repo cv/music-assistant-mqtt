@@ -114,11 +114,12 @@ class MusicQueueCard extends HTMLElement {
         .results { padding-top: 4px; }
         .results .row { margin: 0; padding: 6px 4px; }
         .results .row.active { background: var(--secondary-background-color); }
-        /* a suggestion on two lines: the artist (and album) small above, the song below */
-        .results .two { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-        .results .l1, .results .l2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .results .l1 { font-size: 0.85em; color: var(--secondary-text-color); }
-        .results .l2 { font-size: 1em; color: var(--primary-text-color); }
+        /* a song on two lines: its artist (and album) small above, its title below */
+        .two { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+        .l1, .l2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .l1 { font-size: 0.85em; color: var(--secondary-text-color); }
+        .l2 { font-size: 1em; color: var(--primary-text-color); }
+        .prev .l2 { color: var(--secondary-text-color); }
         .hint { padding: 8px 4px 2px; color: var(--secondary-text-color); font-size: 0.85em; }
       </style>
       <ha-card>
@@ -195,7 +196,7 @@ class MusicQueueCard extends HTMLElement {
     this._next = next;
     this._prevEl.innerHTML = prev.map((p, i) => {
       const skipped = Number(p.seconds) < 30 && Number(p.seconds) < Number(p.duration) - 10;
-      return this._row("p", i, p.image, p.duration, (p.artist ? p.artist + " - " : "") + p.title,
+      return this._row("p", i, p.image, p.duration, [p.artist || "", p.title],
         skipped ? "skipped" : "");
     }).join("");
     this._nextEl.innerHTML = next.length
@@ -203,8 +204,12 @@ class MusicQueueCard extends HTMLElement {
       : '<div class="empty">Nothing queued next</div>';
   }
 
-  // [art] Artist - Song (note) 01:23
+  // [art] artist above title (note) 01:23 [✕]; name is [artist, title] or "Artist - Title" (as Music
+  // Assistant names queue items: split at the first " - ")
   _row(kind, i, image, duration, name, note) {
+    const [artist, title] = Array.isArray(name) ? name
+      : String(name || "").includes(" - ") ? [String(name).split(" - ")[0], String(name).split(" - ").slice(1).join(" - ")]
+      : ["", String(name || "")];
     const starting = this._pending === kind + i;
     const removing = kind === "n" && this._pending === "d" + i;
     const src = thumb(image);
@@ -216,7 +221,9 @@ class MusicQueueCard extends HTMLElement {
       ? '<button class="del" data-del="' + i + '" title="Remove, and add a similar song at the end" aria-label="Remove">✕</button>'
       : "";
     return '<div class="row' + (starting || removing ? " starting" : "") + '" role="button" tabindex="0" data-kind="'
-      + kind + '" data-i="' + i + '">' + art + '<span class="name">' + esc(name) + "</span>"
+      + kind + '" data-i="' + i + '" title="' + esc((artist ? artist + " - " : "") + title) + '">' + art
+      + '<span class="two">' + (artist ? '<span class="l1">' + esc(artist) + "</span>" : "")
+      + '<span class="l2">' + esc(title) + "</span></span>"
       + (n ? '<span class="note">' + esc(n) + "</span>" : "") + '<span class="time">'
       + length(duration) + "</span>" + del + "</div>";
   }
