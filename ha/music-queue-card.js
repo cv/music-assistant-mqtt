@@ -21,11 +21,13 @@
 // minutes, goes at the end (rest_command.ma_add_to_queue). Autoplay's own seeds (the last 10 things
 // queued by hand) aren't in Music Assistant's API: a queue built item by item shows few sources.
 //
-// The lookup box searches Music Assistant (rest_command.ma_search_track) as you type: songs by
-// title or artist, one per song (the library's copy first, then Apple Music's, then Spotify's).
-// Picking one adds it to the queue right after the songs shown (rest_command.ma_add_to_queue, then
-// ma_move_queue_item up from the end), and it shows as one more row until it comes into the window.
-
+// The lookup box searches Music Assistant (rest_command.ma_search_track) as you type: songs, artists
+// and playlists (at most 6, 2 and 3; one row each: the library's copy first, then Apple Music's, then
+// Spotify's; the best name matches first). A song goes right after the songs shown (added at the end
+// with rest_command.ma_add_to_queue, then moved up with ma_move_queue_item); an artist's songs
+// (shuffled, as Music Assistant plays an artist) or a playlist's go there too (added after the current
+// song, then the songs shown moved ahead of them). Added songs show as more rows (up to 5, then "and
+// N more added") until they come into the window.
 const length = (s) => {
   s = Math.max(0, Math.round(Number(s) || 0));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = String(s % 60).padStart(2, "0");
@@ -114,6 +116,9 @@ class MusicQueueCard extends HTMLElement {
         .results { padding-top: 4px; }
         .results .row { margin: 0; padding: 6px 4px; }
         .results .row.active { background: var(--secondary-background-color); }
+        .art.round { border-radius: 50%; }
+        .art ha-icon { --mdc-icon-size: 22px; color: var(--secondary-text-color); }
+        .more { padding: 2px 16px 6px 68px; color: var(--secondary-text-color); font-size: 0.85em; }
         /* a song on two lines: its artist (and album) small above, its title below */
         .two { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
         .l1, .l2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -191,7 +196,10 @@ class MusicQueueCard extends HTMLElement {
     const a = this._window || {};
     const prev = (a.previous || []).slice(-this._config.previous);
     const shown = (a.next || []).slice(0, this._config.next);
-    const next = shown.concat(this._extras.filter((x) => x.adding || !shown.some((n) => n.id === x.id)));
+    // added songs after the window: up to 5 rows, then a line for the rest
+    const added = this._extras.filter((x) => x.adding || !shown.some((n) => n.id === x.id));
+    const next = shown.concat(added.slice(0, 5));
+    const more = added.length - 5;
     this._prev = prev;
     this._next = next;
     this._prevEl.innerHTML = prev.map((p, i) => {
@@ -201,6 +209,7 @@ class MusicQueueCard extends HTMLElement {
     }).join("");
     this._nextEl.innerHTML = next.length
       ? next.map((n, i) => this._row("n", i, n.image, n.duration, n.name, n.adding ? "adding…" : "")).join("")
+        + (more > 0 ? '<div class="more">and ' + more + " more added</div>" : "")
       : '<div class="empty">Nothing queued next</div>';
   }
 
@@ -311,42 +320,73 @@ class MusicQueueCard extends HTMLElement {
     const seq = (this._seq = (this._seq || 0) + 1);
     this._hint = "Searching…";
     this._renderResults();
-    let tracks = [];
+    let found = {};
     try {
-      const r = await this._ma("ma_search_track", { query: q, limit: 15 });
-      tracks = (r && r.tracks) || [];
+      found = (await this._ma("ma_search_track", {
+        query: q, limit: 12, media_types: ["track", "artist", "playlist"],
+      })) || {};
     } catch (err) {
       console.warn("music-queue-card: search failed:", err);
     }
     if (seq !== this._seq) return;   // a newer search is under way
-    // one row per song: the library's copy, else Apple Music's, else Spotify's
+    // one row per song, artist or playlist: the library's copy, else Apple Music's, else Spotify's
     const rank = (t) => (t.provider === "library" ? 0 : String(t.provider).startsWith("apple_music") ? 1 : 2);
-    const songKey = (t) => (artists(t) + "|" + t.name).toLowerCase().replace(/\s*[([][^)\]]*[)\]]/g, "");
-    const best = new Map();
-    for (const t of tracks) {
-      if (!t || !t.uri) continue;
-      const k = songKey(t);
-      if (!best.has(k)) best.set(k, t);
-      else if (rank(t) < rank(best.get(k))) best.set(k, Object.assign(t, { _order: best.get(k)._order }));
-      if (best.get(k)._order == null) best.get(k)._order = best.size;
+    const norm = (s) => String(s || "").toLowerCase().replace(/\s*[([][^)\]]*[)\]]/g, "").trim();
+    const keyOf = {
+      track: (t) => norm(artists(t)) + "|" + norm(t.name),
+      artist: (t) => norm(t.name),
+      playlist: (t) => norm(t.name) + "|" + norm(t.owner),
+    };
+    const lists = { track: found.tracks || [], artist: found.artists || [], playlist: found.playlists || [] };
+    const picked = [];
+    for (const [type, items] of Object.entries(lists)) {
+      const best = new Map();
+      items.forEach((t, order) => {
+        if (!t || !t.uri) return;
+        const k = keyOf[type](t);
+        const had = best.get(k);
+        if (!had || rank(t) < rank(had.t)) best.set(k, { t, type, order: had ? had.order : order });
+      });
+      picked.push(...best.values());
     }
-    this._results = [...best.values()].sort((x, y) => x._order - y._order).slice(0, 6);
+    // how well the name matches what was typed, then the library first, then the search's order;
+    // at most 2 artists, 3 playlists and 6 songs, 8 rows in all
+    const qn = norm(q);
+    const match = (x) => {
+      const n = norm(x.t.name);
+      const whole = x.type === "track" ? norm(artists(x.t) + " " + x.t.name) : n;
+      return n === qn ? 3 : n.startsWith(qn) ? 2 : n.includes(qn) || whole.includes(qn) ? 1 : 0;
+    };
+    picked.sort((x, y) => match(y) - match(x) || rank(x.t) - rank(y.t) || x.order - y.order);
+    const caps = { artist: 2, playlist: 3, track: 6 };
+    const seen = { artist: 0, playlist: 0, track: 0 };
+    this._results = picked.filter((x) => seen[x.type]++ < caps[x.type]).slice(0, 8)
+      .map((x) => Object.assign(x.t, { _type: x.type }));
     this._active = this._results.length ? 0 : -1;
     this._hint = this._results.length ? "" : "No matches";
     this._renderResults();
   }
 
+  // A suggestion's two lines: a song's artist (and album) above its title; "Artist" or
+  // "Playlist · owner" above an artist's or a playlist's name.
+  _lines(t) {
+    if (t._type === "artist") return ["Artist · its songs, shuffled", t.name];
+    if (t._type === "playlist") return ["Playlist" + (t.owner ? " · " + t.owner : ""), t.name];
+    return [artists(t) + (t.album && t.album.name ? " · " + t.album.name : ""), t.name];
+  }
+
   _renderResults() {
     const rows = this._results.map((t, i) => {
       const src = thumb(image(t));
+      const icon = t._type === "artist" ? "mdi:account-music" : t._type === "playlist" ? "mdi:playlist-music" : "";
       const art = src
-        ? '<img class="art" alt="" loading="lazy" src="' + esc(src) + '">'
-        : '<div class="art">♪</div>';
-      const album = t.album && t.album.name ? " · " + t.album.name : "";
+        ? '<img class="art' + (t._type === "artist" ? " round" : "") + '" alt="" loading="lazy" src="' + esc(src) + '">'
+        : icon ? '<div class="art"><ha-icon icon="' + icon + '"></ha-icon></div>' : '<div class="art">♪</div>';
+      const [l1, l2] = this._lines(t);
       return '<div class="row' + (i === this._active ? " active" : "") + '" role="option" tabindex="0" data-kind="s" data-i="'
-        + i + '" title="' + esc(artists(t) + " - " + t.name + album) + '">' + art + '<span class="two"><span class="l1">'
-        + esc(artists(t) + album) + '</span><span class="l2">' + esc(t.name) + '</span></span><span class="time">'
-        + length(t.duration) + "</span></div>";
+        + i + '" title="' + esc(l1 + " - " + l2) + '">' + art + '<span class="two"><span class="l1">'
+        + esc(l1) + '</span><span class="l2">' + esc(l2) + '</span></span><span class="time">'
+        + (t._type === "track" ? length(t.duration) : "") + "</span></div>";
     });
     this._resultsEl.innerHTML = rows.join("") + (this._hint ? '<div class="hint">' + esc(this._hint) + "</div>" : "");
   }
@@ -372,7 +412,9 @@ class MusicQueueCard extends HTMLElement {
     }
   }
 
-  // Adds result i right after the songs shown: at the end of the queue first, then moved up.
+  // Adds result i right after the songs shown: a song at the end of the queue first, then moved up;
+  // an artist's or a playlist's songs right after the current one, then the songs shown moved up
+  // ahead of them (a few moves however many songs came).
   _choose(i) {
     const t = this._results[i];
     const queue = this._window && this._window.queue;
@@ -381,6 +423,7 @@ class MusicQueueCard extends HTMLElement {
     this._results = [];
     this._hint = "";
     this._renderResults();
+    if (t._type === "artist" || t._type === "playlist") return this._chooseMany(t, queue);
     const row = { adding: true, name: artists(t) + " - " + t.name, duration: t.duration, image: image(t), uri: t.uri };
     this._extras.push(row);
     this._render();
@@ -410,6 +453,52 @@ class MusicQueueCard extends HTMLElement {
           duration: item.duration || row.duration });
       } catch (err) {
         console.warn("music-queue-card: adding", row.name, "failed:", err);
+        this._extras = this._extras.filter((x) => x !== row);
+      }
+      this._render();
+    });
+  }
+
+  _chooseMany(t, queue) {
+    const row = { adding: true, name: this._lines(t), image: image(t), uri: t.uri };
+    this._extras.push(row);
+    this._render();
+    // the rows shown before this one, in order: they stay ahead of the new songs
+    const ahead = this._next.filter((n) => !n.adding && n.id).map((n) => n.id);
+    this._chain = (this._chain || Promise.resolve()).then(async () => {
+      try {
+        const q0 = await this._ma("ma_get_queue", { queue });
+        const cur0 = Number(q0 && q0.current_index) || 0;
+        const count0 = Number(q0 && q0.items) || 0;
+        const old = await this._ma("ma_queue_items", { queue, offset: cur0, limit: 60 });
+        const known = new Set((Array.isArray(old) ? old : []).map((it) => it.queue_item_id));
+        await this._ma("ma_add_to_queue", { queue, uri: t.uri, option: "next" });
+        const q = await this._ma("ma_get_queue", { queue });
+        const cur = Number(q && q.current_index) || 0;
+        const added = (Number(q && q.items) || 0) - count0;
+        if (added <= 0) throw new Error("nothing was added");
+        const near = await this._ma("ma_queue_items", { queue, offset: cur, limit: Math.min(500, added + 60) });
+        const list = Array.isArray(near) ? near : [];
+        const b = list.findIndex((it) => !known.has(it.queue_item_id));
+        if (b < 0) throw new Error("the added songs aren't near the current one");
+        let n = 0;
+        while (b + n < list.length && !known.has(list[b + n].queue_item_id)) n++;
+        const block = list.slice(b, b + n);
+        // move the rows shown after the new songs up ahead of them, in their order
+        let k = 0;
+        for (const id of ahead) {
+          const at = list.findIndex((it) => it.queue_item_id === id);
+          if (at < b + n) continue;   // already ahead
+          await this._ma("ma_move_queue_item", { queue, item: id, shift: b + k - at });
+          k++;
+        }
+        const rows = block.map((it) => ({
+          id: it.queue_item_id, name: it.name, duration: it.duration,
+          image: image(it.media_item || {}) || image(it), uri: it.media_item && it.media_item.uri,
+        }));
+        this._extras.splice(this._extras.indexOf(row), 1, ...rows);
+      } catch (err) {
+        console.warn("music-queue-card: adding", t.name, "failed:", err);
         this._extras = this._extras.filter((x) => x !== row);
       }
       this._render();
