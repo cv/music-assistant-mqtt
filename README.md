@@ -121,7 +121,8 @@ started from), else to the song playing now; the first not already queued or jus
 [`ha/music-lyrics-card.js`](ha/music-lyrics-card.js) shows the lyrics of what a Music Assistant
 player plays ("Artist - Title" on top), from Music Assistant's metadata providers (LRCLIB, Genius).
 Synced lyrics follow the song: the current line is highlighted and kept in view (a hand scroll pauses
-that for a few seconds), and a tap on a line seeks there. It needs two more REST commands like the
+that for a few seconds), and a tap on a line seeks there. It hides itself, heading included, while the song has no
+lyrics, so a section holding only it disappears. It needs two more REST commands like the
 ones above (`ma_get_track`: `music/tracks/get` with `item_id` and `provider`; `ma_track_lyrics`:
 `metadata/get_track_lyrics` with `track`, and `timeout: 45`, since a song without lyrics takes ~20 s):
 

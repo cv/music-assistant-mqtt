@@ -7,6 +7,11 @@
 //     - media_player.ma_living_room #   is shown
 //     - media_player.ma_move_2
 //   height: 420                     # the lyrics' height in px (default 420)
+//   title: Lyrics                   # the heading above the card (default Lyrics; "" for none)
+//   icon: mdi:microphone-variant    # its icon
+//
+// The card hides itself, heading included, while the song has no lyrics (or nothing plays): a
+// section holding only this card disappears with it. In the dashboard editor it always shows.
 //
 // The lyrics come from Music Assistant's metadata providers (LRCLIB, Genius, ...): the card reads
 // the track (rest_command.ma_get_track, from the player's media_content_id) and asks for its lyrics
@@ -47,6 +52,11 @@ class MusicLyricsCard extends HTMLElement {
     this._root.innerHTML = `
       <style>
         ha-card { overflow: hidden; }
+        /* like a heading card, above the card */
+        .title { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px;
+          font-size: var(--ha-font-size-l, 16px); line-height: 24px; color: var(--primary-text-color); }
+        .title ha-icon { --mdc-icon-size: 18px; color: var(--primary-text-color); }
+        .title[hidden] { display: none; }
         .head { padding: 12px 16px 4px; color: var(--secondary-text-color); font-size: 0.9em;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .body { overflow-y: auto; padding: 8px 16px 24px; position: relative;
@@ -69,6 +79,7 @@ class MusicLyricsCard extends HTMLElement {
         .note { padding: 16px; color: var(--secondary-text-color); font-size: 0.95em; }
         .foot { padding: 0 16px 10px; font-size: 0.75em; color: var(--secondary-text-color); opacity: 0.7; }
       </style>
+      <div class="title"><ha-icon></ha-icon><span></span></div>
       <ha-card>
         <div class="head"></div>
         <div class="body"></div>
@@ -78,6 +89,12 @@ class MusicLyricsCard extends HTMLElement {
     this._body = this._root.querySelector(".body");
     this._foot = this._root.querySelector(".foot");
     this._body.style.height = this._config.height + "px";
+    const title = this._config.title ?? "Lyrics";
+    const tEl = this._root.querySelector(".title");
+    tEl.hidden = !title;
+    tEl.querySelector("span").textContent = title;
+    tEl.querySelector("ha-icon").setAttribute("icon", this._config.icon || "mdi:microphone-variant");
+    this._show(false);
     // a hand scroll pauses following the song for a few seconds
     for (const ev of ["wheel", "touchstart", "pointerdown"]) {
       this._body.addEventListener(ev, () => {
@@ -155,9 +172,22 @@ class MusicLyricsCard extends HTMLElement {
     return res.content;
   }
 
+  // Shows or hides the whole card (as HA's own cards do: the section hides when nothing is left).
+  _show(visible) {
+    visible = visible || !!this.preview;
+    if (visible === !this.hidden) return;
+    this.style.display = visible ? "" : "none";
+    this.toggleAttribute("hidden", !visible);
+    this.dispatchEvent(new CustomEvent("card-visibility-changed", {
+      detail: { value: visible }, bubbles: true, composed: true,
+    }));
+  }
+
+  // No lyrics to show: the card hides (the text shows only in the dashboard editor).
   _note(text) {
     this._body.innerHTML = '<div class="note">' + esc(text) + "</div>";
     this._foot.textContent = "";
+    this._show(false);
   }
 
   _render() {
@@ -167,11 +197,13 @@ class MusicLyricsCard extends HTMLElement {
         '<div class="line' + (x.text ? "" : " gap") + '" data-i="' + i + '">' + esc(x.text) + "</div>").join("");
       this._foot.textContent = "Synced lyrics · tap a line to go there";
       this._body.scrollTop = 0;
+      this._show(true);
       this._tick();
     } else if (l.plain) {
       this._body.innerHTML = '<div class="plain">' + esc(l.plain) + "</div>";
       this._foot.textContent = "Lyrics (not synced)";
       this._body.scrollTop = 0;
+      this._show(true);
     } else {
       this._note(l.failed ? "Couldn't load the lyrics" : "No lyrics found (an instrumental?)");
     }
