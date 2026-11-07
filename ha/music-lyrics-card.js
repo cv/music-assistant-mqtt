@@ -49,13 +49,20 @@ class MusicLyricsCard extends HTMLElement {
         ha-card { overflow: hidden; }
         .head { padding: 12px 16px 4px; color: var(--secondary-text-color); font-size: 0.9em;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .body { overflow-y: auto; padding: 8px 16px 24px; scroll-behavior: smooth;
+        .body { overflow-y: auto; padding: 8px 16px 24px; position: relative;
           -webkit-mask-image: linear-gradient(transparent 0, #000 24px, #000 calc(100% - 32px), transparent);
           mask-image: linear-gradient(transparent 0, #000 24px, #000 calc(100% - 32px), transparent); }
-        .line { padding: 4px 0; font-size: 1.15em; line-height: 1.35; color: var(--secondary-text-color);
-          opacity: 0.55; transition: opacity 0.3s, color 0.3s; cursor: pointer; border-radius: 6px; }
-        .line.past { opacity: 0.4; }
-        .line.now { opacity: 1; color: var(--primary-text-color); font-weight: 600; }
+        /* one weight for every line (a bold one would reflow): the current line stands out by its
+           brightness and a slight zoom, eased in and out */
+        .line { padding: 5px 4% 5px 0; font-size: 1.15em; line-height: 1.4; font-weight: 500;
+          color: var(--primary-text-color); opacity: 0.32; transform-origin: left center;
+          transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+          cursor: pointer; border-radius: 6px; will-change: opacity, transform; }
+        .line.past { opacity: 0.22; }
+        .line.next { opacity: 0.5; }
+        .line.now { opacity: 1; transform: scale(1.035); }
+        /* with Reduce Motion on, no zoom: only the brightness changes (the glide stays: it is slow) */
+        @media (prefers-reduced-motion: reduce) { .line, .line.now { transform: none; } }
         .line.gap { min-height: 0.8em; }
         .line:hover { background: var(--secondary-background-color); }
         .plain { white-space: pre-wrap; font-size: 1.05em; line-height: 1.5; color: var(--primary-text-color); }
@@ -73,7 +80,10 @@ class MusicLyricsCard extends HTMLElement {
     this._body.style.height = this._config.height + "px";
     // a hand scroll pauses following the song for a few seconds
     for (const ev of ["wheel", "touchstart", "pointerdown"]) {
-      this._body.addEventListener(ev, () => { this._userScroll = Date.now(); }, { passive: true });
+      this._body.addEventListener(ev, () => {
+        this._userScroll = Date.now();
+        this._anim = null;
+      }, { passive: true });
     }
     this._body.addEventListener("click", (e) => this._seek(e));
   }
@@ -191,12 +201,36 @@ class MusicLyricsCard extends HTMLElement {
     rows.forEach((r, k) => {
       r.classList.toggle("now", k === i);
       r.classList.toggle("past", k < i);
+      r.classList.toggle("next", k === i + 1);
     });
     if (i >= 0 && Date.now() - this._userScroll > 6000) {
       const row = rows[i];
       const top = row.offsetTop - this._body.clientHeight / 3;
-      this._body.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      this._glide(Math.max(0, top));
     }
+  }
+
+  // Scrolls the lyrics to top with an ease-in-out over about a second (a hand scroll stops it).
+  // Also with Reduce Motion on: a jump per line read as jerky, and the glide is slow and short.
+  _glide(top) {
+    const body = this._body;
+    const from = body.scrollTop;
+    const to = Math.min(top, body.scrollHeight - body.clientHeight);
+    if (Math.abs(to - from) < 1) return;
+
+    const start = performance.now();
+    const ms = Math.min(1100, 500 + Math.abs(to - from) * 2);
+    const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const anim = {};
+    this._anim = anim;
+    const step = (now) => {
+      if (this._anim !== anim) return;
+      const t = Math.min(1, (now - start) / ms);
+      body.scrollTop = from + (to - from) * ease(t);
+      if (t < 1) requestAnimationFrame(step);
+      else this._anim = null;
+    };
+    requestAnimationFrame(step);
   }
 
   _seek(e) {
