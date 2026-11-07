@@ -120,6 +120,8 @@ started from), else to the song playing now; the first not already queued or jus
 
 [`ha/music-lyrics-card.js`](ha/music-lyrics-card.js) shows the lyrics of what a Music Assistant
 player plays ("Artist - Title" on top), from Music Assistant's metadata providers (LRCLIB, Genius).
+A song the speaker plays by itself (Sonos playing Apple Music or Spotify) is found by that service's id,
+else by a search for its artist and title (\`ma_search_track\`: \`music/search\` with \`search_query\`).
 Synced lyrics follow the song: the current line is highlighted and kept in view (a hand scroll pauses
 that for a few seconds), and a tap on a line seeks there. It hides itself, heading included, while the song has no
 lyrics, so a section holding only it disappears. It needs two more REST commands like the

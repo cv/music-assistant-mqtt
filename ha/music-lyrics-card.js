@@ -14,9 +14,10 @@
 // section holding only this card disappears with it. In the dashboard editor it always shows.
 //
 // The lyrics come from Music Assistant's metadata providers (LRCLIB, Genius, ...): the card reads
-// the track (rest_command.ma_get_track, from the player's media_content_id) and asks for its lyrics
-// (rest_command.ma_track_lyrics, Music Assistant's metadata/get_track_lyrics), once per song while
-// the page is open.
+// the track (rest_command.ma_get_track, from the player's media_content_id; for a song the speaker
+// plays by itself, e.g. Sonos playing Apple Music, by that service's id or else a search by artist
+// and title, rest_command.ma_search_track) and asks for its lyrics (rest_command.ma_track_lyrics,
+// Music Assistant's metadata/get_track_lyrics), once per song while the page is open.
 
 const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -128,15 +129,18 @@ class MusicLyricsCard extends HTMLElement {
     this._entity = e;
     const st = e ? hass.states[e] : null;
     const a = (st && st.attributes) || {};
-    const uri = st ? a.media_content_id || null : null;
+    // what identifies the song: Music Assistant's uri, or the source's id (Sonos playing Apple Music
+    // or Spotify itself), else its artist and title (looked up in Music Assistant)
+    const uri = !st ? null : a.media_content_id && /^[^:]+:\/\/track\//.test(a.media_content_id)
+      ? a.media_content_id
+      : a.media_artist && a.media_title ? "song:" + (a.media_content_id || "") + "|" + a.media_artist + "|" + a.media_title : null;
     const label = a.media_artist ? a.media_artist + " - " + (a.media_title || "") : a.media_title || "";
     this._head.textContent = label;
     if (uri === this._uri) return;
     this._uri = uri;
     this._lyrics = null;
     this._line = -1;
-    if (!uri) return this._note(st ? "Not a Music Assistant song" : "Nothing playing");
-    if (!/^[^:]+:\/\/track\//.test(uri)) return this._note("No lyrics for this source");
+    if (!uri) return this._note(st ? "Nothing to look up" : "Nothing playing");
     this._note("Looking for lyrics…");
     this._load(uri).then((lyrics) => {
       if (this._uri !== uri) return;
@@ -145,11 +149,40 @@ class MusicLyricsCard extends HTMLElement {
     });
   }
 
+  // The Track to ask lyrics for: by Music Assistant's uri, by the source's own id (Sonos' Apple
+  // Music "song:<id>", Spotify's "spotify:track:<id>"), else the best match of a search by artist and
+  // title (same title, the artist's name in its artists).
+  async _track(uri) {
+    let m = /^([^:]+):\/\/track\/(.+)$/.exec(uri);
+    if (m) return this._ma("ma_get_track", { provider: m[1], item_id: m[2] });
+    const [, id, artist, title] = /^song:(.*)\|(.*)\|(.*)$/.exec(uri);
+    m = /^song:(\d+)$/.exec(id) || /^x-sonos-http:song%3a(\d+)/.exec(id);
+    if (m) {
+      try { return await this._ma("ma_get_track", { provider: "apple_music", item_id: m[1] }); } catch (err) { /* search below */ }
+    }
+    m = /spotify(?::|%3a)track(?::|%3a)([A-Za-z0-9]+)/.exec(id);
+    if (m) {
+      try { return await this._ma("ma_get_track", { provider: "spotify", item_id: m[1] }); } catch (err) { /* search below */ }
+    }
+    const norm = (t) => String(t || "").toLowerCase().replace(/\s*[([][^)\]]*[)\]]/g, "").replace(/^the /, "").trim();
+    const found = await this._ma("ma_search_track", { query: artist + " " + title });
+    const tracks = (found && found.tracks) || [];
+    const best = tracks.find((t) => norm(t.name) === norm(title)
+      && (t.artists || []).some((x) => norm(artist).includes(norm(x.name)) || norm(x.name).includes(norm(artist))))
+      || tracks.find((t) => norm(t.name) === norm(title));
+    if (!best) throw new Error("no match for " + artist + " - " + title);
+    return best;
+  }
+
   _load(uri) {
     if (!cache.has(uri)) {
-      const m = /^([^:]+):\/\/track\/(.+)$/.exec(uri);
       const p = (async () => {
-        const track = await this._ma("ma_get_track", { provider: m[1], item_id: m[2] });
+        let track;
+        try {
+          track = await this._track(uri);
+        } catch (err) {
+          return { plain: "", synced: [] };   // not found: no lyrics to show
+        }
         const r = await this._ma("ma_track_lyrics", { track });
         const [plain, lrc] = Array.isArray(r) ? r : [null, null];
         return { plain: String(plain || "").trim(), synced: parseLrc(lrc) };
