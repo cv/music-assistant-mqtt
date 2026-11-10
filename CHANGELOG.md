@@ -2,6 +2,13 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## 0.6.2 (2026-11-10)
+
+- Faster JSON reading: matching a value's path against the wanted paths and looking up a kept value
+  no longer copy the lists they walk at every step (each step compares the heads it takes apart).
+  The simulation runs in 11.2 s instead of 13.3 s on Bend 2.0.40 (as fast as 2.0.39 was), with the
+  same results.
+
 ## 0.6.1 (2026-11-10)
 
 - Built with Bend 2.0.40, on Alpine 3.24 (zig 0.16). Bend 2.0.40's Base declares a `Lost` (a pointer

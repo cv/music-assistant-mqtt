@@ -194,54 +194,49 @@ def fits(p: Pat, s: Seg) -> Bool:
         case SIdx{_}:
           False{}
 
-# Whether both have a first level, and the pattern's fits the path's.
-def heads.fit(p: List<&2, Pat>, s: List<&2, Seg>) -> Bool:
-  match p s:
-    case Con{x, _} Con{y, _}:
+# ok, then whether these heads fit (only compared while all levels so far fit).
+def fits.if(ok: Bool, x: Pat, y: Seg) -> Bool:
+  match ok:
+    case True{}:
       fits(x, y)
-    case _ _:
+    case False{}:
       False{}
 
-# The recursion behind matches; ok: heads.fit(p, s).
-def matches.loop(+p: List<&2, Pat>, +s: List<&2, Seg>, ok: Bool) -> Bool:
+# The recursion behind matches. ok: whether the levels taken so far fit; each step compares the
+# heads it takes apart, so neither list is copied.
+def matches.loop(p: List<&2, Pat>, s: List<&2, Seg>, ok: Bool) -> Bool:
   match p s:
     case Nil{} Nil{}:
-      True{}
-    case Con{_, ps} Con{_, ss}:
-      match ok:
-        case True{}:
-          matches.loop(ps, ss, heads.fit(ps, ss))
-        case False{}:
-          False{}
+      ok
+    case Con{x, ps} Con{y, ss}:
+      matches.loop(ps, ss, fits.if(ok, x, y))
     case _ _:
       False{}
 
 # Whether a pattern matches a path, level by level (same length).
-def matches(+p: List<&2, Pat>, +s: List<&2, Seg>) -> Bool:
-  matches.loop(p, s, heads.fit(p, s))
+def matches(p: List<&2, Pat>, s: List<&2, Seg>) -> Bool:
+  matches.loop(p, s, True{})
 
-def first.hit(ws: Wants, +s: List<&2, Seg>) -> Bool:
-  match ws:
-    case Nil{}:
-      False{}
-    case p <> _:
+# hit, else whether this pattern matches (patterns after a hit are dropped, not compared).
+def matches.if(hit: Bool, p: List<&2, Pat>, +s: List<&2, Seg>) -> Bool:
+  match hit:
+    case True{}:
+      True{}
+    case False{}:
       matches(p, s)
 
-# The recursion behind wanted; hit: first.hit(ws, s).
-def wanted.loop(+ws: Wants, +s: List<&2, Seg>, hit: Bool) -> Bool:
+# The recursion behind wanted.at. hit: whether a pattern taken so far matched; the patterns are
+# taken one by one (only the path is copied, once per pattern).
+def wanted.loop(ws: Wants, +s: List<&2, Seg>, hit: Bool) -> Bool:
   match ws:
     case Nil{}:
-      False{}
-    case _ <> rest:
-      match hit:
-        case True{}:
-          True{}
-        case False{}:
-          wanted.loop(rest, s, first.hit(rest, s))
+      hit
+    case p <> rest:
+      wanted.loop(rest, s, matches.if(hit, p, s))
 
 # Whether a value at this path is kept.
 def wanted.at(+ws: Wants, +s: List<&2, Seg>) -> Bool:
-  wanted.loop(ws, s, first.hit(ws, s))
+  wanted.loop(ws, s, False{})
 
 # Whether a value at this stack is kept.
 def wanted(+ws: Wants, +stack: List<&2, Frame>) -> Bool:

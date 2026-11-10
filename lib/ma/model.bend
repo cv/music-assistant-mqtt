@@ -38,29 +38,27 @@ def seg.eq(a: J.Seg, b: J.Seg) -> Bool:
         case J.SIdx{j}:
           U32.is_eq(i, j)
 
-def segs.heads(+a: List<&2, J.Seg>, +b: List<&2, J.Seg>) -> Bool:
-  match a b:
-    case Con{x, _} Con{y, _}:
+# eq, then whether these levels are equal (only compared while all levels so far are).
+def seg.eq.if(eq: Bool, x: J.Seg, y: J.Seg) -> Bool:
+  match eq:
+    case True{}:
       seg.eq(x, y)
-    case _ _:
+    case False{}:
       False{}
 
-# eq: whether the heads are equal (segs.heads), so the comparison stops at the first difference.
-def segs.loop(+a: List<&2, J.Seg>, +b: List<&2, J.Seg>, eq: Bool) -> Bool:
+# The recursion behind segs.eq. eq: whether the levels taken so far are equal; each step compares
+# the heads it takes apart, so neither path is copied.
+def segs.loop(a: List<&2, J.Seg>, b: List<&2, J.Seg>, eq: Bool) -> Bool:
   match a b:
     case Nil{} Nil{}:
-      True{}
-    case Con{_, xs} Con{_, ys}:
-      match eq:
-        case True{}:
-          segs.loop(xs, ys, segs.heads(xs, ys))
-        case False{}:
-          False{}
+      eq
+    case Con{x, xs} Con{y, ys}:
+      segs.loop(xs, ys, seg.eq.if(eq, x, y))
     case _ _:
       False{}
 
 def segs.eq(+a: List<&2, J.Seg>, +b: List<&2, J.Seg>) -> Bool:
-  segs.loop(a, b, segs.heads(a, b))
+  segs.loop(a, b, True{})
 
 def cap.path(c: J.Cap) -> List<&2, J.Seg>:
   match c:
@@ -72,29 +70,39 @@ def cap.val(c: J.Cap) -> J.Val:
     case J.Cap{_, v}:
       v
 
-# Whether the first value kept is at path.
-def head.hit(+caps: Caps, +path: List<&2, J.Seg>) -> Bool:
-  match caps:
-    case Nil{}:
-      False{}
-    case c <> _:
-      segs.eq(cap.path(c), path)
-
-# hit: head.hit(caps, path).
-def get.loop(+caps: Caps, +path: List<&2, J.Seg>, hit: Bool) -> Maybe<&2, J.Val>:
-  match caps:
-    case Nil{}:
+# A kept value if its path is path.
+def get.here.if(eq: Bool, v: J.Val) -> Maybe<&2, J.Val>:
+  match eq:
+    case True{}:
+      Some{v}
+    case False{}:
       None{}
+
+def get.here(c: J.Cap, +path: List<&2, J.Seg>) -> Maybe<&2, J.Val>:
+  match c:
+    case J.Cap{p, v}:
+      get.here.if(segs.eq(p, path), v)
+
+# found, else the value of c if it is at path (kept values after a hit are dropped, not compared).
+def get.or(found: Maybe<&2, J.Val>, c: J.Cap, +path: List<&2, J.Seg>) -> Maybe<&2, J.Val>:
+  match found:
+    case Some{v}:
+      Some{v}
+    case None{}:
+      get.here(c, path)
+
+# The recursion behind get. found: the value of a kept value taken so far whose path matched; the
+# kept values are taken one by one (only the path is copied, once per value).
+def get.loop(caps: Caps, +path: List<&2, J.Seg>, found: Maybe<&2, J.Val>) -> Maybe<&2, J.Val>:
+  match caps:
+    case Nil{}:
+      found
     case c <> t:
-      match hit:
-        case True{}:
-          Some{cap.val(c)}
-        case False{}:
-          get.loop(t, path, head.hit(t, path))
+      get.loop(t, path, get.or(found, c, path))
 
 # The value kept at path, if any.
 def get(+caps: Caps, +path: List<&2, J.Seg>) -> Maybe<&2, J.Val>:
-  get.loop(caps, path, head.hit(caps, path))
+  get.loop(caps, path, None{})
 
 def key(s: String) -> J.Seg:
   J.SKey{B.utf8(s)}
