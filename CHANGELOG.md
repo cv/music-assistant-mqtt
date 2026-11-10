@@ -2,6 +2,16 @@
 
 Each release's section is its notes on GitHub (the release workflow takes it by version).
 
+## 0.6.1 (2026-11-10)
+
+- The image is built on Alpine 3.24 (zig 0.16). The program is unchanged.
+- Home Assistant cards (`ha/`, not in the image): the queue card's next items get a ✕ that removes one
+  and adds a similar song at the end (picked like Music Assistant's Autoplay, from the queue's
+  sources), a lookup box that adds a song, an artist's songs or a playlist right after the ones shown,
+  and every row on two lines (the artist above the title); a new lyrics card
+  (`ha/music-lyrics-card.js`): Music Assistant's lyrics for what plays, synced lines following the
+  song, hidden when there are none.
+
 ## 0.6.0 (2026-11-05)
 
 - Queue windows carry artwork: each previous play's and next item's `image` (an address a browser

@@ -2,7 +2,7 @@
 # nothing else, under 1 MB. Bend emits the C first (bend mam.bend -o out/mam.c, as CI does); the
 # build stage runs on the build machine, so no emulation is needed.
 #   bend mam.bend -o out/mam.c && docker build -t music-assistant-mqtt .
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS build
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS build
 ARG TARGETARCH
 RUN apk add --no-cache zig
 WORKDIR /src
