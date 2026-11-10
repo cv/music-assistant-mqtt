@@ -184,7 +184,7 @@ law core_lost_ma_says_offline:
   for +book: K.Book
   for t: K.Time
   for +why: String
-  {K.out.actions(K.step(live(conf, n, up, clock, book), t, K.MaHeard{L.Lost{why}}))
+  {K.out.actions(K.step(live(conf, n, up, clock, book), t, K.MaHeard{L.Dropped{why}}))
     == [K.status(live(conf, n, up, clock, book), "offline"), K.ToMq{M.Disconnect{}},
         K.Log{"Music Assistant: " ++ why}, K.Ended{"Music Assistant: " ++ why}]
     : List<&2, K.Action>}

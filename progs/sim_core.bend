@@ -398,7 +398,7 @@ def pick.opening(+cat: U32, +r: U32) -> Pick:
     case 3:
       ev.pick(K.MaHeard{L.Garbled{}}, r)
     case _:
-      ev.pick(K.MaHeard{L.Lost{"cut"}}, r)
+      ev.pick(K.MaHeard{L.Dropped{"cut"}}, r)
 
 def pick.logging_in(+cat: U32, +r: U32) -> Pick:
   match cat:
@@ -448,7 +448,7 @@ def pick.live(+cat: U32, +r: U32, asked: List<&2, U32>, +track: U32) -> Pick:
     case 9:
       ev.pick(K.MqLost{}, r)
     case _:
-      ev.pick(K.MaHeard{L.Lost{"cut"}}, r)
+      ev.pick(K.MaHeard{L.Dropped{"cut"}}, r)
 
 # One step
 # --------

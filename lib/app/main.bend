@@ -93,7 +93,7 @@ def send.mq(m: Main, bs: B.Bytes) -> IO(Main):
         sent.mq(p, ma, events, core, life, loop)
 
 def ma.lost(why: String) -> Core.Input:
-  Core.MaHeard{L.Lost{why}}
+  Core.MaHeard{L.Dropped{why}}
 
 def sent.ma(p: Socket & Poll<&1, &1, Result<&1, &1, (U32 & String) & B.Bytes, Unit>, B.Bytes>,
     mq: Socket, events: Chan(R.Ev), core: Top.Top, life: Life, loop: Loop) -> IO(Main):

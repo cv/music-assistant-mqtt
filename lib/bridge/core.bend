@@ -706,7 +706,7 @@ def ma.on(h: L.Heard, +c2: Core, +t: Time) -> Out:
       Out{c2, [Log{"Music Assistant sent a message that isn't JSON"}]}
     case L.Pinged{p}:
       Out{c2, [PongMa{p}]}
-    case L.Lost{why}:
+    case L.Dropped{why}:
       finish(c2, "Music Assistant: " ++ why, True{})
 
 # What Music Assistant's link heard (anything counts as hearing from it).

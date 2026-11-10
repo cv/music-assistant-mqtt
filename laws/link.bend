@@ -52,7 +52,7 @@ law link_garbled_then_fine:
 # A refused upgrade is the link's end.
 law link_refused:
   {L.fed.heard(L.feed(Api.wants(), L.start(), u("HTTP/1.1 401 Unauthorized\r\n\r\n")))
-    == [L.Lost{"upgrade refused: HTTP/1.1 401"}] : List<&2, L.Heard>}
+    == [L.Dropped{"upgrade refused: HTTP/1.1 401"}] : List<&2, L.Heard>}
 
 # For every input: however the socket splits the bytes, the link hears the same.
 law link_feed_split:

@@ -12,7 +12,7 @@ type Heard is Data:
   Message{caps: List<&2, J.Cap>}
   Garbled{}
   Pinged{payload: B.Bytes}
-  Lost{why: String}
+  Dropped{why: String}
 
 type Link is Data:
   Link{dec: W.Dec, scan: J.Scan}
@@ -58,9 +58,9 @@ def on_out(+ws: J.Wants, dec: W.Dec, scan: J.Scan, o: W.Out) -> Step:
     case W.Ping{p}:
       Step{Link{dec, scan}, Some{Pinged{p}}}
     case W.Closed{}:
-      Step{Link{dec, scan}, Some{Lost{"closed by Music Assistant"}}}
+      Step{Link{dec, scan}, Some{Dropped{"closed by Music Assistant"}}}
     case W.Bad{why}:
-      Step{Link{dec, scan}, Some{Lost{why}}}
+      Step{Link{dec, scan}, Some{Dropped{why}}}
 
 # The link after one byte.
 def step(+ws: J.Wants, l: Link, +b: U32) -> Step:

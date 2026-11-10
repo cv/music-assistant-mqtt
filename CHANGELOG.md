@@ -4,7 +4,8 @@ Each release's section is its notes on GitHub (the release workflow takes it by 
 
 ## 0.6.1 (2026-11-10)
 
-- The image is built on Alpine 3.24 (zig 0.16). The program is unchanged.
+- Built with Bend 2.0.40, on Alpine 3.24 (zig 0.16). Bend 2.0.40's Base declares a `Lost` (a pointer
+  event), so the link's end is now `Dropped`; the program behaves the same.
 - Home Assistant cards (`ha/`, not in the image): the queue card's next items get a ✕ that removes one
   and adds a similar song at the end (picked like Music Assistant's Autoplay, from the queue's
   sources), a lookup box that adds a song, an artist's songs or a playlist right after the ones shown,

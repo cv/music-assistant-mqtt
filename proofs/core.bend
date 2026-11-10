@@ -234,7 +234,7 @@ def event_quiet_connecting(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, 
           {==}
         case L.Pinged{x}:
           {==}
-        case L.Lost{w}:
+        case L.Dropped{w}:
           {==}
     case K.Tick{}:
       tick_quiet(
@@ -284,7 +284,7 @@ def event_quiet_opening(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc
           {==}
         case L.Pinged{x}:
           {==}
-        case L.Lost{w}:
+        case L.Dropped{w}:
           {==}
     case K.Tick{}:
       tick_quiet(
@@ -334,7 +334,7 @@ def event_quiet_logging_in(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, 
           {==}
         case L.Pinged{x}:
           {==}
-        case L.Lost{w}:
+        case L.Dropped{w}:
           {==}
     case K.Tick{}:
       tick_quiet(
@@ -1017,7 +1017,7 @@ def event_none_listing(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc:
           {==}
         case L.Pinged{x}:
           {==}
-        case L.Lost{w}:
+        case L.Dropped{w}:
           {==}
     case K.Tick{}:
       tick_none(
@@ -1061,7 +1061,7 @@ def event_none_live(+conf: C.Conf, +n: U32, +up: Bool, +a: U32, +b: U32, +cc: U3
           {==}
         case L.Pinged{x}:
           {==}
-        case L.Lost{w}:
+        case L.Dropped{w}:
           {==}
     case K.Tick{}:
       tick_none(
